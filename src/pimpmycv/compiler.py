@@ -91,7 +91,13 @@ def compile_latex(
             if process.returncode != 0:
                 return CompileResult(False, selected, pdf_path, "\n".join(log_parts))
     except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "") + "\n" + (exc.stderr or "")
+        output = "\n".join(
+            part.decode("utf-8", errors="replace")
+            if isinstance(part, bytes)
+            else part
+            for part in (exc.stdout, exc.stderr)
+            if part
+        )
         log_parts.append(f"Compilation timed out after {timeout_seconds} seconds.\n{output}")
         return CompileResult(False, selected, pdf_path, "\n".join(log_parts))
 

@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import shutil
 
+from openai import OpenAIError
+
 from .agent import tailor_cv
 from .archive import ArchiveError, extract_cv_archive, write_tailored_archive
 from .compiler import SUPPORTED_ENGINES, find_engine
@@ -41,10 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         choices=PROVIDERS,
         default=os.getenv("PIMPMYCV_PROVIDER", "openai"),
-        help=(
-            "Model provider: openai, azure, azure-openai, or ollama "
-            "(default: openai)"
-        ),
+        help="Model provider: openai, azure, or ollama (default: openai)",
     )
     parser.add_argument(
         "--endpoint",
@@ -92,7 +91,7 @@ def validate_input_paths(
     job_path: Path,
     instructions_path: Path | None = None,
 ) -> None:
-    """Validate the two user-supplied input artifacts before any API work."""
+    """Validate user-supplied input files before any API work."""
     if not cv_path.is_file():
         raise ValueError(f"CV file not found: {cv_path}")
     if cv_path.suffix.lower() != ".zip":
@@ -187,7 +186,13 @@ def main(argv: list[str] | None = None) -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(result.pdf_path, output_pdf)
             write_tailored_archive(project, output_zip, pdf_path=result.pdf_path)
-    except (ArchiveError, RuntimeError, UnicodeDecodeError) as exc:
+    except (
+        ArchiveError,
+        OpenAIError,
+        RuntimeError,
+        UnicodeDecodeError,
+        OSError,
+    ) as exc:
         raise SystemExit(str(exc)) from exc
 
     print(f"Project: {output_zip}")

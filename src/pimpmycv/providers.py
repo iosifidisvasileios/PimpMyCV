@@ -7,13 +7,8 @@ from typing import Any, Literal
 from openai import AzureOpenAI, OpenAI
 
 
-ProviderName = Literal["openai", "azure", "azure-openai", "ollama"]
-PROVIDERS: tuple[ProviderName, ...] = (
-    "openai",
-    "azure",
-    "azure-openai",
-    "ollama",
-)
+ProviderName = Literal["openai", "azure", "ollama"]
+PROVIDERS: tuple[ProviderName, ...] = ("openai", "azure", "ollama")
 
 
 class ProviderConfigError(ValueError):
@@ -33,13 +28,6 @@ def _with_v1(endpoint: str) -> str:
     endpoint = endpoint.rstrip("/")
     if not endpoint.endswith("/v1"):
         endpoint += "/v1"
-    return endpoint + "/"
-
-
-def _azure_v1(endpoint: str) -> str:
-    endpoint = endpoint.rstrip("/")
-    if not endpoint.endswith("/openai/v1"):
-        endpoint += "/openai/v1"
     return endpoint + "/"
 
 
@@ -73,33 +61,6 @@ def create_backend(
         api_key = os.getenv("AZURE_OPENAI_API_KEY")
         azure_endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
         deployment = model or os.getenv("AZURE_OPENAI_DEPLOYMENT")
-        missing = [
-            name
-            for name, value in (
-                ("AZURE_OPENAI_API_KEY", api_key),
-                ("AZURE_OPENAI_ENDPOINT", azure_endpoint),
-                ("--model or AZURE_OPENAI_DEPLOYMENT", deployment),
-            )
-            if not value
-        ]
-        if missing:
-            raise ProviderConfigError(
-                "Missing Azure OpenAI configuration: " + ", ".join(missing) + "."
-            )
-        return Backend(
-            provider="azure",
-            client=OpenAI(api_key=api_key, base_url=_azure_v1(azure_endpoint)),
-            model=deployment,
-            response_options={
-                "tool_choice": "required",
-                "parallel_tool_calls": False,
-            },
-        )
-
-    if provider == "azure-openai":
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        azure_endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
-        deployment = model or os.getenv("AZURE_OPENAI_DEPLOYMENT")
         api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv(
             "OPENAI_API_VERSION"
         )
@@ -118,10 +79,10 @@ def create_backend(
         ]
         if missing:
             raise ProviderConfigError(
-                "Missing AzureOpenAI configuration: " + ", ".join(missing) + "."
+                "Missing Azure OpenAI configuration: " + ", ".join(missing) + "."
             )
         return Backend(
-            provider="azure-openai",
+            provider="azure",
             client=AzureOpenAI(
                 api_key=api_key,
                 azure_endpoint=azure_endpoint,

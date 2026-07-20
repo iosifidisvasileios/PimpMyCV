@@ -51,8 +51,7 @@ one document, pass its path explicitly: `--main-tex cv/main.tex`.
 | Provider | Configuration | Default model |
 | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
-| Azure v1 | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | deployment name |
-| AzureOpenAI SDK | Azure variables above plus `AZURE_OPENAI_API_VERSION` | deployment name |
+| AzureOpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` | deployment name |
 | Ollama | local service at `http://localhost:11434` | `qwen3:8b` |
 
 Ollama exposes an OpenAI-compatible API, so PimpMyCV uses the same `openai`
@@ -64,16 +63,9 @@ Azure OpenAI:
 $env:AZURE_OPENAI_API_KEY = "your-azure-key"
 $env:AZURE_OPENAI_ENDPOINT = "https://YOUR-RESOURCE.openai.azure.com"
 $env:AZURE_OPENAI_DEPLOYMENT = "YOUR-DEPLOYMENT-NAME"
-```
-
-Use `--provider azure` for Azure's `/openai/v1/` endpoint. To use the SDK's
-dedicated `AzureOpenAI` client, also set an API version and select
-`azure-openai`:
-
-```powershell
 $env:AZURE_OPENAI_API_VERSION = "YOUR-SUPPORTED-API-VERSION"
 
-pimpmycv --provider azure-openai `
+pimpmycv --provider azure `
   --cv examples/cv.zip `
   --job examples/job.txt
 ```
@@ -113,7 +105,7 @@ pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.t
   --instructions examples/instructions.txt
 ```
 
-Available providers are `openai`, `azure`, `azure-openai`, and `ollama`.
+Available providers are `openai`, `azure`, and `ollama`.
 
 After compiling a draft, the CLI shows the agent's change summary and writes:
 
