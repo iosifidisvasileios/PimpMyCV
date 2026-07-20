@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pimpmycv"
+version = "0.1.0"
+description = "Tailor a LaTeX CV to a job description and compile it to PDF."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+pimpmycv = "pimpmycv.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pimpmycv"]
