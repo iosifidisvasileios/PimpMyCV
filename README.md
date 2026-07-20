@@ -51,18 +51,12 @@ one document, pass its path explicitly: `--main-tex cv/main.tex`.
 | Provider | Configuration | Default model |
 | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
-| Azure | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | deployment name |
+| Azure v1 | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | deployment name |
+| AzureOpenAI SDK | Azure variables above plus `AZURE_OPENAI_API_VERSION` | deployment name |
 | Ollama | local service at `http://localhost:11434` | `qwen3:8b` |
 
 Ollama exposes an OpenAI-compatible API, so PimpMyCV uses the same `openai`
-Python library for all three providers. The separate `ollama` Python package is
-not required.
-
-OpenAI:
-
-```powershell
-$env:OPENAI_API_KEY = "your-api-key"
-```
+Python library. The separate `ollama` Python package is not required.
 
 Azure OpenAI:
 
@@ -72,28 +66,54 @@ $env:AZURE_OPENAI_ENDPOINT = "https://YOUR-RESOURCE.openai.azure.com"
 $env:AZURE_OPENAI_DEPLOYMENT = "YOUR-DEPLOYMENT-NAME"
 ```
 
+Use `--provider azure` for Azure's `/openai/v1/` endpoint. To use the SDK's
+dedicated `AzureOpenAI` client, also set an API version and select
+`azure-openai`:
+
+```powershell
+$env:AZURE_OPENAI_API_VERSION = "YOUR-SUPPORTED-API-VERSION"
+
+pimpmycv --provider azure-openai `
+  --cv examples/cv.zip `
+  --job examples/job.txt
+```
+
 Ollama:
 
 ```powershell
 ollama pull qwen3:8b
 ```
 
+Example using an Ollama model named `XYZ`:
+
+```powershell
+# Create the local XYZ name from a tool-capable model.
+ollama cp qwen3:8b XYZ
+
+pimpmycv --provider ollama --model XYZ `
+  --cv examples/cv.zip `
+  --job examples/job.txt `
+  --instructions examples/instructions.txt
+```
+
+If `XYZ` already exists in `ollama list`, skip the `ollama cp` command.
+
 Use `--model` and `--endpoint` to override provider defaults.
 
 ## Run
 
 ```powershell
-pimpmycv --provider openai --cv examples/cv.zip --job examples/job.txt
+pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt
 ```
 
 Add your own rewrite preferences with a file:
 
 ```powershell
-pimpmycv --provider openai --cv examples/cv.zip --job examples/job.txt `
+pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt `
   --instructions examples/instructions.txt
 ```
 
-For Azure or Ollama, change `--provider` to `azure` or `ollama`.
+Available providers are `openai`, `azure`, `azure-openai`, and `ollama`.
 
 After compiling a draft, the CLI shows the agent's change summary and writes:
 

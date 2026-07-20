@@ -41,7 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         choices=PROVIDERS,
         default=os.getenv("PIMPMYCV_PROVIDER", "openai"),
-        help="Model provider: openai, azure, or ollama (default: openai)",
+        help=(
+            "Model provider: openai, azure, azure-openai, or ollama "
+            "(default: openai)"
+        ),
     )
     parser.add_argument(
         "--endpoint",
