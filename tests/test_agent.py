@@ -250,6 +250,7 @@ def test_agent_accepts_plain_text_latex_when_tool_call_is_missing(
     responses = FakeTextResponses([candidate])
     client = SimpleNamespace(responses=responses)
     expected_pdf = tmp_path / "tailored_cv.pdf"
+    debug_dir = tmp_path / "debug"
 
     def fake_compile(tex_path, **kwargs):
         saved = tex_path.read_text(encoding="utf-8")
@@ -270,9 +271,15 @@ def test_agent_accepts_plain_text_latex_when_tool_call_is_missing(
         source_dir=tmp_path,
         supports_stateful_responses=False,
         response_options={},
+        debug_dir=debug_dir,
     )
 
     assert result.success
+    assert "Tailored body" in (debug_dir / "candidate-01.tex").read_text(
+        encoding="utf-8"
+    )
+    assert (debug_dir / "candidate-01.log").read_text(encoding="utf-8") == "ok"
+    assert (debug_dir / "response-01.txt").read_text(encoding="utf-8") == candidate
 
 
 def test_plain_text_candidate_receives_compiler_feedback(monkeypatch, tmp_path: Path):

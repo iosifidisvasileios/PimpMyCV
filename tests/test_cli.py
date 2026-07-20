@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pimpmycv.cli import validate_input_paths
+from pimpmycv.cli import build_parser, validate_input_paths
 
 
 def test_accepts_zip_cv_and_txt_job_description(tmp_path: Path):
@@ -36,3 +36,17 @@ def test_rejects_unsupported_instructions_file(tmp_path: Path):
 
     with pytest.raises(ValueError, match="must be a .txt or .md file"):
         validate_input_paths(cv, job, instructions)
+
+
+def test_parser_accepts_verbose_and_debug_flags():
+    args = build_parser().parse_args([
+        "--cv",
+        "cv.zip",
+        "--job",
+        "job.txt",
+        "--verbose",
+        "--debug",
+    ])
+
+    assert args.verbose
+    assert args.debug

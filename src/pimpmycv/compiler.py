@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 
 
 SUPPORTED_ENGINES = ("latexmk", "pdflatex", "xelatex", "lualatex", "tectonic")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,8 @@ def compile_latex(
     log_parts: list[str] = []
     try:
         for command in commands:
+            logger.info("Running compiler: %s", shlex.join(command))
+            logger.debug("Compiler working directory: %s", source_dir)
             process = subprocess.run(
                 command,
                 cwd=source_dir,
@@ -97,6 +102,7 @@ def compile_latex(
                 timeout=timeout_seconds,
                 check=False,
             )
+            logger.debug("Compiler exit code: %d", process.returncode)
             log_parts.extend(part for part in (process.stdout, process.stderr) if part)
             if process.returncode != 0:
                 # With -f, latexmk can produce a usable PDF while reporting
@@ -109,7 +115,11 @@ def compile_latex(
                     log_parts.append(
                         "latexmk reported errors but produced a non-empty PDF."
                     )
+                    logger.warning(
+                        "latexmk reported errors but generated a non-empty PDF."
+                    )
                     continue
+                logger.warning("Compilation failed with exit code %d.", process.returncode)
                 return CompileResult(False, selected, pdf_path, "\n".join(log_parts))
     except subprocess.TimeoutExpired as exc:
         output = "\n".join(
@@ -119,10 +129,14 @@ def compile_latex(
             for part in (exc.stdout, exc.stderr)
             if part
         )
+        logger.warning("Compilation timed out after %d seconds.", timeout_seconds)
         log_parts.append(f"Compilation timed out after {timeout_seconds} seconds.\n{output}")
         return CompileResult(False, selected, pdf_path, "\n".join(log_parts))
 
     success = pdf_path.is_file() and pdf_path.stat().st_size > 0
     if not success:
         log_parts.append("The compiler exited successfully but did not create a PDF.")
+        logger.warning("Compiler exited without creating a non-empty PDF.")
+    else:
+        logger.info("Compiler created: %s", pdf_path)
     return CompileResult(success, selected, pdf_path, "\n".join(log_parts))

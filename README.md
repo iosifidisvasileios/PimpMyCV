@@ -118,6 +118,25 @@ pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.t
 
 Available providers are `openai`, `azure`, and `ollama`.
 
+To see each model and compiler step while the command runs, add `--verbose`:
+
+```powershell
+pimpmycv --provider ollama --model XYZ --cv examples/cv.zip `
+  --job examples/job.txt --verbose
+```
+
+Use `--debug` for detailed response information and persistent diagnostics. It
+also enables progress logging and writes the following under `OUTPUT/debug/`:
+
+```text
+response-01.txt
+candidate-01.tex
+candidate-01.log
+```
+
+Debug artifacts can contain CV or job-description content. Do not share them
+without reviewing and redacting personal information.
+
 After compiling a draft, the CLI shows the agent's change summary and writes:
 
 - `build/draft_cv.pdf`
@@ -142,6 +161,8 @@ Useful options:
 --max-feedback-rounds N    User-requested revisions
 --no-feedback              Accept the first compilable draft
 --engine xelatex           Select a LaTeX engine
+--verbose                  Show model and compiler progress
+--debug                    Save responses, candidates, and compiler logs
 ```
 
 ## Prompts

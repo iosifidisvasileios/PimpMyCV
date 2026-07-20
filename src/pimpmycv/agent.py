@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from importlib.resources import files
 import json
+import logging
 from pathlib import Path
 from string import Template
 from typing import Any, Callable
@@ -12,6 +13,7 @@ from .compiler import CompileResult, compile_latex
 
 PROMPT_PACKAGE = "pimpmycv.prompts"
 DOCUMENT_START = r"\begin{document}"
+logger = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -74,8 +76,8 @@ def _tool_calls(response: Any) -> list[Any]:
     ]
 
 
-def _text_candidate(response: Any) -> str | None:
-    """Extract a complete LaTeX document from a non-tool model response."""
+def _response_text(response: Any) -> str:
+    """Collect ordinary text from a Responses API result."""
     text = getattr(response, "output_text", "") or ""
     if not text:
         parts = []
@@ -87,7 +89,12 @@ def _text_candidate(response: Any) -> str | None:
                 if isinstance(value, str):
                     parts.append(value)
         text = "\n".join(parts)
+    return text
 
+
+def _text_candidate(response: Any) -> str | None:
+    """Extract a complete LaTeX document from a non-tool model response."""
+    text = _response_text(response)
     start = text.find(DOCUMENT_START)
     document_end = r"\end{document}"
     end = text.rfind(document_end)
@@ -124,6 +131,7 @@ def tailor_cv(
     feedback_callback: Callable[[CompileResult, str, int], str | None] | None = None,
     supports_stateful_responses: bool = True,
     response_options: dict[str, Any] | None = None,
+    debug_dir: Path | None = None,
 ) -> CompileResult:
     """Let the model edit, compile, inspect, and retry a LaTeX CV."""
     if max_attempts < 1:
@@ -145,6 +153,9 @@ def tailor_cv(
             "parallel_tool_calls": False,
         }
     history: list[dict[str, Any]] = [{"role": "user", "content": task}]
+    if debug_dir is not None:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Requesting initial CV rewrite from model %s.", model)
     response = client.responses.create(
         model=model,
         instructions=system_prompt,
@@ -157,13 +168,30 @@ def tailor_cv(
     failed_attempts = 0
     feedback_rounds = 0
     draft_number = 0
+    response_number = 1
+    candidate_number = 0
     while True:
         calls = _tool_calls(response)
         call = calls[0] if calls else None
+        response_text = _response_text(response)
+        item_types = [getattr(item, "type", "unknown") for item in response.output]
+        logger.debug("Response %d item types: %s", response_number, item_types)
+        if debug_dir is not None and response_text:
+            response_path = debug_dir / f"response-{response_number:02d}.txt"
+            response_path.write_text(response_text, encoding="utf-8")
+            logger.debug("Saved model response: %s", response_path)
         if call is None:
             latex = _text_candidate(response)
             summary = "The model returned a LaTeX draft without a change summary."
+            if latex is None:
+                logger.warning(
+                    "Response %d contained neither a function call nor complete LaTeX.",
+                    response_number,
+                )
+            else:
+                logger.info("Response %d contained a direct LaTeX candidate.", response_number)
         else:
+            logger.info("Response %d called %s.", response_number, call.name)
             if call.name != "save_and_compile_cv":
                 raise RuntimeError(f"The model called an unknown tool: {call.name}")
             try:
@@ -175,6 +203,11 @@ def tailor_cv(
 
         if latex is None:
             failed_attempts += 1
+            logger.warning(
+                "No candidate produced (failed attempt %d/%d).",
+                failed_attempts,
+                max_attempts,
+            )
             continuation: str | list[dict[str, Any]] = load_prompt("tool-required.md")
         else:
             if not isinstance(latex, str) or not latex.strip():
@@ -182,15 +215,29 @@ def tailor_cv(
             if not isinstance(summary, str) or not summary.strip():
                 raise RuntimeError("The model returned an empty rewrite summary.")
 
-            latex = preserve_preamble(cv_tex, latex)
+            candidate_number += 1
+            protected_latex = preserve_preamble(cv_tex, latex)
+            if protected_latex != latex:
+                logger.debug("Restored the original LaTeX preamble.")
+            latex = protected_latex
             output_tex.parent.mkdir(parents=True, exist_ok=True)
             output_tex.write_text(latex, encoding="utf-8")
+            if debug_dir is not None:
+                candidate_path = debug_dir / f"candidate-{candidate_number:02d}.tex"
+                candidate_path.write_text(latex, encoding="utf-8")
+                logger.debug("Saved candidate: %s", candidate_path)
+            logger.info("Compiling candidate %d with %s.", candidate_number, engine)
             last_result = compile_latex(
                 output_tex,
                 source_dir=source_dir,
                 engine=engine,
             )
+            if debug_dir is not None:
+                compiler_log = debug_dir / f"candidate-{candidate_number:02d}.log"
+                compiler_log.write_text(last_result.log, encoding="utf-8")
+                logger.debug("Saved compiler log: %s", compiler_log)
             if last_result.success:
+                logger.info("Candidate %d produced a PDF.", candidate_number)
                 failed_attempts = 0
                 draft_number += 1
                 if feedback_callback is None or feedback_rounds >= max_feedback_rounds:
@@ -199,6 +246,7 @@ def tailor_cv(
                 if not user_feedback or not user_feedback.strip():
                     return last_result
                 feedback_rounds += 1
+                logger.info("Applying user feedback round %d.", feedback_rounds)
                 continuation = []
                 if call is not None:
                     continuation.append({
@@ -221,6 +269,12 @@ def tailor_cv(
                 )
             else:
                 failed_attempts += 1
+                logger.warning(
+                    "Candidate %d failed to compile (failed attempt %d/%d).",
+                    candidate_number,
+                    failed_attempts,
+                    max_attempts,
+                )
                 if call is not None:
                     continuation = [{
                         "type": "function_call_output",
@@ -263,7 +317,9 @@ def tailor_cv(
             else:
                 history.extend(continuation)
             next_request["input"] = history
+        logger.info("Requesting another model response.")
         response = client.responses.create(**next_request)
+        response_number += 1
 
     details = last_result.log[-2000:] if last_result else "The model never produced a candidate."
     raise RuntimeError(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +12,17 @@ from .agent import tailor_cv
 from .archive import ArchiveError, extract_cv_archive, write_tailored_archive
 from .compiler import SUPPORTED_ENGINES, find_engine
 from .providers import PROVIDERS, ProviderConfigError, create_backend
+
+
+logger = logging.getLogger(__name__)
+
+
+def configure_logging(*, verbose: bool, debug: bool) -> None:
+    """Enable concise project logs without dumping SDK request bodies."""
+    level = logging.DEBUG if debug else logging.INFO if verbose else logging.WARNING
+    logging.basicConfig(level=level, format="[%(levelname)s] %(message)s")
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,6 +95,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip interactive draft review and accept the first compilable CV",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show model, candidate, compiler, and feedback-loop progress",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show detailed progress and save attempts under OUTPUT/debug",
+    )
     return parser
 
 
@@ -109,6 +131,7 @@ def validate_input_paths(
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    configure_logging(verbose=args.verbose, debug=args.debug)
     cv_path = args.cv.expanduser().resolve()
     job_path = args.job.expanduser().resolve()
     instructions_path = (
@@ -145,8 +168,16 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"Using {backend.provider} model {backend.model} and {selected_engine}..."
     )
+    logger.info("CV archive: %s", cv_path)
+    logger.info("Job description: %s", job_path)
+    if args.debug:
+        logger.warning(
+            "Debug artifacts can contain CV and job-description content: %s",
+            output_dir / "debug",
+        )
     try:
         with extract_cv_archive(cv_path, args.main_tex) as project:
+            logger.info("Main LaTeX document: %s", project.main_relative_path)
             def request_feedback(result, summary: str, draft_number: int) -> str | None:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(result.pdf_path, draft_pdf)
@@ -182,6 +213,7 @@ def main(argv: list[str] | None = None) -> None:
                 feedback_callback=None if args.no_feedback else request_feedback,
                 supports_stateful_responses=backend.supports_stateful_responses,
                 response_options=backend.response_options,
+                debug_dir=output_dir / "debug" if args.debug else None,
             )
             output_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(result.pdf_path, output_pdf)
