@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 
-SUPPORTED_ENGINES = ("pdflatex", "xelatex", "lualatex", "tectonic")
+SUPPORTED_ENGINES = ("latexmk", "pdflatex", "xelatex", "lualatex", "tectonic")
 
 
 @dataclass(frozen=True)
@@ -31,8 +31,9 @@ def find_engine(requested: str = "auto") -> str:
         if shutil.which(engine):
             return engine
     raise RuntimeError(
-        "No LaTeX engine found. Install MiKTeX/TeX Live (pdflatex, xelatex, "
-        "or lualatex) or Tectonic, then make it available on PATH."
+        "No LaTeX compiler found. Install latexmk, MiKTeX/TeX Live "
+        "(pdflatex, xelatex, or lualatex), or Tectonic, then make it "
+        "available on PATH."
     )
 
 
@@ -52,7 +53,16 @@ def compile_latex(
     if pdf_path.exists():
         pdf_path.unlink()
 
-    if selected == "tectonic":
+    if selected == "latexmk":
+        commands = [[
+            selected,
+            "-pdf",
+            "-interaction=nonstopmode",
+            "-file-line-error",
+            "-f",
+            tex_path.name,
+        ]]
+    elif selected == "tectonic":
         commands = [[
             selected,
             "--untrusted",
@@ -89,6 +99,17 @@ def compile_latex(
             )
             log_parts.extend(part for part in (process.stdout, process.stderr) if part)
             if process.returncode != 0:
+                # With -f, latexmk can produce a usable PDF while reporting
+                # recoverable errors from the source document.
+                if (
+                    selected == "latexmk"
+                    and pdf_path.is_file()
+                    and pdf_path.stat().st_size > 0
+                ):
+                    log_parts.append(
+                        "latexmk reported errors but produced a non-empty PDF."
+                    )
+                    continue
                 return CompileResult(False, selected, pdf_path, "\n".join(log_parts))
     except subprocess.TimeoutExpired as exc:
         output = "\n".join(

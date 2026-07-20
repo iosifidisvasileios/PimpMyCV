@@ -8,7 +8,7 @@ instructed not to invent experience or credentials.
 ## Requirements
 
 - Python 3.10+
-- MiKTeX, TeX Live, or Tectonic on `PATH`
+- `latexmk` with TeX Live or MiKTeX on `PATH` (recommended), or Tectonic
 - OpenAI, Azure OpenAI, or Ollama 0.13.3+
 
 ## Install
@@ -26,13 +26,13 @@ Install a LaTeX distribution on Linux:
 ```bash
 # Ubuntu or Debian
 sudo apt update
-sudo apt install -y texlive-latex-base texlive-latex-extra
+sudo apt install -y latexmk biber texlive-latex-base texlive-latex-extra
 
 # Fedora
-sudo dnf install -y texlive-scheme-medium
+sudo dnf install -y latexmk biber texlive-scheme-medium
 
 # Arch Linux
-sudo pacman -S texlive-basic texlive-latexextra
+sudo pacman -S biber texlive-basic texlive-binextra texlive-latexextra
 ```
 
 ## Inputs
@@ -45,6 +45,15 @@ sudo pacman -S texlive-basic texlive-latexextra
 
 The main LaTeX file is detected automatically. If the ZIP contains more than
 one document, pass its path explicitly: `--main-tex cv/main.tex`.
+
+When available, PimpMyCV prefers `latexmk` and runs:
+
+```text
+latexmk -pdf -interaction=nonstopmode -file-line-error -f main.tex
+```
+
+This also runs bibliography tools such as Biber when the CV requires them. The
+agent can rewrite CV content, but the original LaTeX preamble is preserved.
 
 ## Configure a provider
 
@@ -157,8 +166,8 @@ To verify an installed LaTeX engine by compiling a minimal PDF:
 pytest tests/test_latex_integration.py -q -rs
 ```
 
-This test uses `pdflatex`, `xelatex`, `lualatex`, or `tectonic` from `PATH`. It
-is skipped when none is installed.
+This test uses `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `tectonic` from
+`PATH`. It is skipped when none is installed.
 
 ## Privacy
 

@@ -11,6 +11,7 @@ from .compiler import CompileResult, compile_latex
 
 
 PROMPT_PACKAGE = "pimpmycv.prompts"
+DOCUMENT_START = r"\begin{document}"
 
 
 @lru_cache
@@ -22,6 +23,15 @@ def load_prompt(name: str) -> str:
 def render_prompt(name: str, **values: str) -> str:
     """Render a packaged prompt without interpreting braces in LaTeX values."""
     return Template(load_prompt(name)).substitute(values)
+
+
+def preserve_preamble(original: str, candidate: str) -> str:
+    """Keep the source preamble when the model returns a complete document."""
+    if DOCUMENT_START not in original or DOCUMENT_START not in candidate:
+        return candidate
+    original_preamble = original.split(DOCUMENT_START, 1)[0]
+    candidate_body = candidate.split(DOCUMENT_START, 1)[1]
+    return original_preamble + DOCUMENT_START + candidate_body
 
 
 TOOLS = [
@@ -141,6 +151,7 @@ def tailor_cv(
             if not isinstance(summary, str) or not summary.strip():
                 raise RuntimeError("The model returned an empty rewrite summary.")
 
+            latex = preserve_preamble(cv_tex, latex)
             output_tex.parent.mkdir(parents=True, exist_ok=True)
             output_tex.write_text(latex, encoding="utf-8")
             last_result = compile_latex(

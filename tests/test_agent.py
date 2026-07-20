@@ -185,3 +185,44 @@ def test_prompt_templates_are_loaded_and_rendered_from_package_files():
     assert "\\textbf{Python} costs $5" in task
     assert "Backend role" in task
     assert "Keep it to one page." in task
+
+
+def test_agent_preserves_original_preamble(monkeypatch, tmp_path: Path):
+    original = (
+        "\\documentclass{altacv}\n"
+        "\\geometry{left=1cm}\n"
+        "\\begin{document}\n"
+        "Original body\n"
+        "\\end{document}"
+    )
+    candidate = (
+        "\\documentclass{article}\n"
+        "\\titleformat{\\section}{}{_}\n"
+        "\\begin{document}\n"
+        "Tailored body\n"
+        "\\end{document}"
+    )
+    responses = FakeResponses([candidate])
+    client = SimpleNamespace(responses=responses)
+    expected_pdf = tmp_path / "tailored_cv.pdf"
+
+    def fake_compile(tex_path, **kwargs):
+        saved = tex_path.read_text(encoding="utf-8")
+        assert saved.startswith(
+            "\\documentclass{altacv}\n\\geometry{left=1cm}\n"
+        )
+        assert "\\titleformat" not in saved
+        assert "Tailored body" in saved
+        return CompileResult(True, "latexmk", expected_pdf, "ok")
+
+    monkeypatch.setattr(agent, "compile_latex", fake_compile)
+
+    result = agent.tailor_cv(
+        client,
+        cv_tex=original,
+        job_description="job",
+        output_tex=tmp_path / "tailored_cv.tex",
+        source_dir=tmp_path,
+    )
+
+    assert result.success
