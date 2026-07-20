@@ -23,6 +23,9 @@ pimpmycv = "pimpmycv.cli:main"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+  "integration: exercises an installed local tool",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pimpmycv"]

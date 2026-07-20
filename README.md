@@ -21,6 +21,20 @@ python -m pip install -e ".[dev]"
 
 On Linux/macOS, activate with `source .venv/bin/activate`.
 
+Install a LaTeX distribution on Linux:
+
+```bash
+# Ubuntu or Debian
+sudo apt update
+sudo apt install -y texlive-latex-base texlive-latex-extra
+
+# Fedora
+sudo dnf install -y texlive-scheme-medium
+
+# Arch Linux
+sudo pacman -S texlive-basic texlive-latexextra
+```
+
 ## Inputs
 
 - `--cv`: a ZIP containing the main `.tex` file and any styles, images, fonts,
@@ -124,6 +138,15 @@ pytest
 
 Tests use a fake model client, so they do not spend API credits or require a
 LaTeX installation.
+
+To verify an installed LaTeX engine by compiling a minimal PDF:
+
+```bash
+pytest tests/test_latex_integration.py -q -rs
+```
+
+This test uses `pdflatex`, `xelatex`, `lualatex`, or `tectonic` from `PATH`. It
+is skipped when none is installed.
 
 ## Privacy
 
