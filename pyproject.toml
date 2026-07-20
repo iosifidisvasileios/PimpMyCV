@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.31,<2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -9,12 +9,12 @@ description = "Tailor a LaTeX CV to a job description and compile it to PDF."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "openai>=2.0.0",
+  "openai>=2.46,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0",
+  "pytest>=9.1,<10",
 ]
 
 [project.scripts]
