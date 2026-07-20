@@ -1,9 +1,10 @@
 # PimpMyCV
 
-A deliberately small Python CLI that tailors a LaTeX CV to a job description,
-then compiles the result to PDF. The model can act through one local tool: it
-writes a candidate, runs the LaTeX compiler, reads any compiler errors, and
-revises until compilation succeeds.
+A deliberately small Python CLI that tailors a zipped LaTeX CV project to a job
+description, then compiles the result to PDF. The ZIP can contain style files,
+images, fonts, `\input` sections, and other support files. The model can act
+through one local tool: it writes a candidate, runs the LaTeX compiler, reads
+any compiler errors, and revises until compilation succeeds.
 
 The original CV is never modified. The prompt explicitly forbids inventing
 experience or credentials.
@@ -33,7 +34,7 @@ Linux/macOS activation is `source .venv/bin/activate`.
 
 ```powershell
 $env:OPENAI_API_KEY = "your-api-key"
-pimpmycv --provider openai --cv examples/cv.tex --job examples/job.txt
+pimpmycv --provider openai --cv examples/cv.zip --job examples/job.txt
 ```
 
 The OpenAI default is `gpt-5.6-sol` with medium reasoning. Override it with
@@ -48,7 +49,7 @@ Use your Azure resource endpoint and the name of a deployed model:
 $env:AZURE_OPENAI_API_KEY = "your-azure-key"
 $env:AZURE_OPENAI_ENDPOINT = "https://YOUR-RESOURCE.openai.azure.com"
 $env:AZURE_OPENAI_DEPLOYMENT = "YOUR-DEPLOYMENT-NAME"
-pimpmycv --provider azure --cv examples/cv.tex --job examples/job.txt
+pimpmycv --provider azure --cv examples/cv.zip --job examples/job.txt
 ```
 
 You can pass the deployment with `--model` and the endpoint with `--endpoint`
@@ -62,7 +63,7 @@ Pull a tool-capable model and make sure the Ollama service is running:
 ```powershell
 ollama pull qwen3:8b
 pimpmycv --provider ollama --model qwen3:8b `
-  --cv examples/cv.tex --job examples/job.txt
+  --cv examples/cv.zip --job examples/job.txt
 ```
 
 The default Ollama URL is `http://localhost:11434`. Override it with
@@ -74,30 +75,38 @@ agent history after compiler failures.
 ### Common options
 
 ```powershell
-pimpmycv --cv examples/cv.tex --job examples/job.txt --output build
+pimpmycv --cv examples/cv.zip --job examples/job.txt --output build
 ```
 
 The command creates:
 
-- `build/tailored_cv.tex`
 - `build/tailored_cv.pdf`
+- `build/tailored_cv.zip`, containing the rewritten `.tex`, generated PDF, and
+  every support file from the input archive
 
 Set `PIMPMYCV_PROVIDER` and `PIMPMYCV_MODEL` to avoid repeating provider and
 model flags. To choose a compiler explicitly, pass for example
 `--engine xelatex`.
 
-Relative `\input`, image, font, and style paths are resolved from the original
-CV's directory. Keep those assets beside the original CV.
+The main `.tex` file is detected by looking for the archive's single
+`\documentclass`. If the ZIP contains multiple standalone documents, select the
+CV explicitly, for example `--main-tex cv/main.tex`. Relative `\input`, image,
+font, and style paths are resolved from the main document's directory.
 
 ## How the agent loop works
 
-1. The selected provider's Responses API receives the CV, job description,
-   factuality constraints, and the `save_and_compile_cv` tool.
-2. The model reflects on relevance and submits a complete LaTeX candidate.
-3. The host saves and compiles it with shell escape disabled.
-4. On a compiler error, diagnostics are returned to the same response chain and
+1. The ZIP is safely extracted to an isolated temporary directory; traversal
+   paths, symbolic links, oversized archives, and ambiguous main files are
+   rejected.
+2. The selected provider's Responses API receives the main CV document, job
+   description, factuality constraints, and the `save_and_compile_cv` tool.
+3. The model reflects on relevance and submits a complete LaTeX candidate.
+4. The host saves and compiles it with shell escape disabled while support files
+   remain available.
+5. On a compiler error, diagnostics are returned to the same response chain and
    the model tries again, up to `--max-attempts`.
-5. The command exits successfully only when a non-empty PDF exists.
+6. The command exits successfully only when a non-empty PDF exists, then creates
+   a tailored ZIP containing the updated project and PDF.
 
 This is intentionally not built on a larger agent framework: the Responses API
 tool loop is enough for this single-agent workflow.
