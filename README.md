@@ -110,6 +110,10 @@ The main `.tex` file is detected by looking for the archive's single
 CV explicitly, for example `--main-tex cv/main.tex`. Relative `\input`, image,
 font, and style paths are resolved from the main document's directory.
 
+The job description is supplied separately with `--job` and must be a UTF-8
+`.txt` file. Its complete text is passed to the agent as job-description source
+material.
+
 ## How the agent loop works
 
 1. The ZIP is safely extracted to an isolated temporary directory; traversal
@@ -130,6 +134,18 @@ font, and style paths are resolved from the main document's directory.
 
 This is intentionally not built on a larger agent framework: the Responses API
 tool loop is enough for this single-agent workflow.
+
+## Customizing prompts
+
+Agent instructions are stored as editable files in `src/pimpmycv/prompts/`:
+
+- `system.md` contains the durable role, factuality, and compilation rules.
+- `task.md` injects the CV and job description into the initial task.
+- `feedback.md` wraps each user-requested revision.
+- `tool-required.md` handles a response that did not call the compile tool.
+
+The Python agent only loads and renders these templates; prompt text is not
+embedded in the implementation.
 
 ## Tests
 

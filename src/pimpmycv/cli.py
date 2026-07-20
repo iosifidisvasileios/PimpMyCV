@@ -26,7 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-tex",
         help="Path to the main .tex file inside the ZIP (auto-detected by default)",
     )
-    parser.add_argument("--job", type=Path, required=True, help="Job description text file")
+    parser.add_argument(
+        "--job",
+        type=Path,
+        required=True,
+        help="UTF-8 .txt job description",
+    )
     parser.add_argument(
         "--provider",
         choices=PROVIDERS,
@@ -74,18 +79,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def validate_input_paths(cv_path: Path, job_path: Path) -> None:
+    """Validate the two user-supplied input artifacts before any API work."""
+    if not cv_path.is_file():
+        raise ValueError(f"CV file not found: {cv_path}")
+    if cv_path.suffix.lower() != ".zip":
+        raise ValueError("The CV project must be a .zip file.")
+    if not job_path.is_file():
+        raise ValueError(f"Job description not found: {job_path}")
+    if job_path.suffix.lower() != ".txt":
+        raise ValueError("The job description must be a .txt file.")
+
+
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     cv_path = args.cv.expanduser().resolve()
     job_path = args.job.expanduser().resolve()
     output_dir = args.output.expanduser().resolve()
 
-    if not cv_path.is_file():
-        raise SystemExit(f"CV file not found: {cv_path}")
-    if cv_path.suffix.lower() != ".zip":
-        raise SystemExit("The CV project must be a .zip file.")
-    if not job_path.is_file():
-        raise SystemExit(f"Job description not found: {job_path}")
+    try:
+        validate_input_paths(cv_path, job_path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if args.max_attempts < 1:
         raise SystemExit("--max-attempts must be at least 1.")
     if args.max_feedback_rounds < 0:

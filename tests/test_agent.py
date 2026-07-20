@@ -75,7 +75,7 @@ def test_agent_returns_compiler_feedback_and_retries(monkeypatch, tmp_path: Path
     assert len(responses.requests) == 2
     retry = responses.requests[1]
     assert retry["previous_response_id"] == "response-1"
-    assert retry["instructions"] == agent.SYSTEM_PROMPT
+    assert retry["instructions"] == agent.load_prompt("system.md")
     assert "line 7: error" in retry["input"][0]["output"]
     assert (tmp_path / "tailored_cv.tex").read_text(encoding="utf-8") == fixed
 
@@ -170,3 +170,16 @@ def test_stateless_provider_replays_user_feedback(monkeypatch, tmp_path: Path):
     assert "previous_response_id" not in revision
     assert revision["input"][-2]["type"] == "function_call_output"
     assert "Shorten the profile" in revision["input"][-1]["content"]
+
+
+def test_prompt_templates_are_loaded_and_rendered_from_package_files():
+    system = agent.load_prompt("system.md")
+    task = agent.render_prompt(
+        "task.md",
+        cv_tex="\\textbf{Python} costs $5",
+        job_description="Backend role",
+    )
+
+    assert "Never invent" in system
+    assert "\\textbf{Python} costs $5" in task
+    assert "Backend role" in task
