@@ -64,7 +64,9 @@ agent can rewrite CV content, but the original LaTeX preamble is preserved.
 | Ollama | local service at `http://localhost:11434` | `qwen3:8b` |
 
 Ollama exposes an OpenAI-compatible API, so PimpMyCV uses the same `openai`
-Python library. The separate `ollama` Python package is not required.
+Python library. The separate `ollama` Python package is not required. If an
+Ollama model returns LaTeX as ordinary text instead of a function call,
+PimpMyCV detects and compiles that response as a fallback.
 
 Azure OpenAI:
 
@@ -150,6 +152,7 @@ Agent prompts are editable Markdown files in `src/pimpmycv/prompts/`:
 - `task.md`
 - `feedback.md`
 - `tool-required.md`
+- `compile-failure.md`
 
 ## Tests
 

@@ -67,7 +67,33 @@ TOOLS = [
 
 
 def _tool_calls(response: Any) -> list[Any]:
-    return [item for item in response.output if item.type == "function_call"]
+    return [
+        item
+        for item in response.output
+        if getattr(item, "type", None) == "function_call"
+    ]
+
+
+def _text_candidate(response: Any) -> str | None:
+    """Extract a complete LaTeX document from a non-tool model response."""
+    text = getattr(response, "output_text", "") or ""
+    if not text:
+        parts = []
+        for item in response.output:
+            if getattr(item, "type", None) != "message":
+                continue
+            for content in getattr(item, "content", []):
+                value = getattr(content, "text", None)
+                if isinstance(value, str):
+                    parts.append(value)
+        text = "\n".join(parts)
+
+    start = text.find(DOCUMENT_START)
+    document_end = r"\end{document}"
+    end = text.rfind(document_end)
+    if start < 0 or end < start:
+        return None
+    return text[start : end + len(document_end)]
 
 
 def _serialise_output(response: Any) -> list[dict[str, Any]]:
@@ -133,11 +159,11 @@ def tailor_cv(
     draft_number = 0
     while True:
         calls = _tool_calls(response)
-        if not calls:
-            failed_attempts += 1
-            continuation: str | list[dict[str, Any]] = load_prompt("tool-required.md")
+        call = calls[0] if calls else None
+        if call is None:
+            latex = _text_candidate(response)
+            summary = "The model returned a LaTeX draft without a change summary."
         else:
-            call = calls[0]
             if call.name != "save_and_compile_cv":
                 raise RuntimeError(f"The model called an unknown tool: {call.name}")
             try:
@@ -146,6 +172,11 @@ def tailor_cv(
                 summary = arguments["summary"]
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
                 raise RuntimeError("The model returned invalid tool arguments.") from exc
+
+        if latex is None:
+            failed_attempts += 1
+            continuation: str | list[dict[str, Any]] = load_prompt("tool-required.md")
+        else:
             if not isinstance(latex, str) or not latex.strip():
                 raise RuntimeError("The model returned an empty LaTeX document.")
             if not isinstance(summary, str) or not summary.strip():
@@ -168,8 +199,9 @@ def tailor_cv(
                 if not user_feedback or not user_feedback.strip():
                     return last_result
                 feedback_rounds += 1
-                continuation = [
-                    {
+                continuation = []
+                if call is not None:
+                    continuation.append({
                         "type": "function_call_output",
                         "call_id": call.call_id,
                         "output": json.dumps({
@@ -177,27 +209,38 @@ def tailor_cv(
                             "compiler": last_result.engine,
                             "pdf_path": str(last_result.pdf_path),
                         }),
-                    },
+                    })
+                continuation.append(
                     {
                         "role": "user",
                         "content": render_prompt(
                             "feedback.md",
                             user_feedback=user_feedback.strip(),
                         ),
-                    },
-                ]
+                    }
+                )
             else:
                 failed_attempts += 1
-                continuation = [{
-                    "type": "function_call_output",
-                    "call_id": call.call_id,
-                    "output": json.dumps({
-                        "success": False,
-                        "attempt": failed_attempts,
-                        "compiler": last_result.engine,
-                        "diagnostics": last_result.log[-8000:],
-                    }),
-                }]
+                if call is not None:
+                    continuation = [{
+                        "type": "function_call_output",
+                        "call_id": call.call_id,
+                        "output": json.dumps({
+                            "success": False,
+                            "attempt": failed_attempts,
+                            "compiler": last_result.engine,
+                            "diagnostics": last_result.log[-8000:],
+                        }),
+                    }]
+                else:
+                    continuation = [{
+                        "role": "user",
+                        "content": render_prompt(
+                            "compile-failure.md",
+                            compiler=last_result.engine,
+                            diagnostics=last_result.log[-8000:],
+                        ),
+                    }]
 
         if failed_attempts >= max_attempts:
             break
