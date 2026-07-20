@@ -7,3 +7,7 @@ ${cv_tex}
 <job_description>
 ${job_description}
 </job_description>
+
+<user_instructions>
+${user_instructions}
+</user_instructions>

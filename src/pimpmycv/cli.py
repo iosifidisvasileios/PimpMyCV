@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="UTF-8 .txt job description",
     )
     parser.add_argument(
+        "--instructions",
+        type=Path,
+        help="Optional UTF-8 .txt or .md file with additional rewrite instructions",
+    )
+    parser.add_argument(
         "--provider",
         choices=PROVIDERS,
         default=os.getenv("PIMPMYCV_PROVIDER", "openai"),
@@ -79,7 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_input_paths(cv_path: Path, job_path: Path) -> None:
+def validate_input_paths(
+    cv_path: Path,
+    job_path: Path,
+    instructions_path: Path | None = None,
+) -> None:
     """Validate the two user-supplied input artifacts before any API work."""
     if not cv_path.is_file():
         raise ValueError(f"CV file not found: {cv_path}")
@@ -89,16 +98,24 @@ def validate_input_paths(cv_path: Path, job_path: Path) -> None:
         raise ValueError(f"Job description not found: {job_path}")
     if job_path.suffix.lower() != ".txt":
         raise ValueError("The job description must be a .txt file.")
+    if instructions_path is not None:
+        if not instructions_path.is_file():
+            raise ValueError(f"Instructions file not found: {instructions_path}")
+        if instructions_path.suffix.lower() not in {".txt", ".md"}:
+            raise ValueError("The instructions must be a .txt or .md file.")
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     cv_path = args.cv.expanduser().resolve()
     job_path = args.job.expanduser().resolve()
+    instructions_path = (
+        args.instructions.expanduser().resolve() if args.instructions else None
+    )
     output_dir = args.output.expanduser().resolve()
 
     try:
-        validate_input_paths(cv_path, job_path)
+        validate_input_paths(cv_path, job_path, instructions_path)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     if args.max_attempts < 1:
@@ -149,6 +166,11 @@ def main(argv: list[str] | None = None) -> None:
                 backend.client,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
                 job_description=job_path.read_text(encoding="utf-8"),
+                user_instructions=(
+                    instructions_path.read_text(encoding="utf-8")
+                    if instructions_path
+                    else ""
+                ),
                 output_tex=project.main_tex,
                 source_dir=project.main_tex.parent,
                 model=backend.model,

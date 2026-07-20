@@ -1,0 +1,3 @@
+Keep the CV to one page.
+Use concise bullets.
+Emphasize Python automation and deployment checks where supported by the CV.

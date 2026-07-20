@@ -178,8 +178,10 @@ def test_prompt_templates_are_loaded_and_rendered_from_package_files():
         "task.md",
         cv_tex="\\textbf{Python} costs $5",
         job_description="Backend role",
+        user_instructions="Keep it to one page.",
     )
 
     assert "Never invent" in system
     assert "\\textbf{Python} costs $5" in task
     assert "Backend role" in task
+    assert "Keep it to one page." in task

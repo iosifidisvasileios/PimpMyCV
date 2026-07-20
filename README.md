@@ -26,6 +26,8 @@ On Linux/macOS, activate with `source .venv/bin/activate`.
 - `--cv`: a ZIP containing the main `.tex` file and any styles, images, fonts,
   or `\input` files it needs.
 - `--job`: a UTF-8 `.txt` job description.
+- `--instructions`: an optional UTF-8 `.txt` or `.md` file with your preferred
+  tone, length, ordering, emphasis, or formatting.
 
 The main LaTeX file is detected automatically. If the ZIP contains more than
 one document, pass its path explicitly: `--main-tex cv/main.tex`.
@@ -37,6 +39,10 @@ one document, pass its path explicitly: `--main-tex cv/main.tex`.
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
 | Azure | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | deployment name |
 | Ollama | local service at `http://localhost:11434` | `qwen3:8b` |
+
+Ollama exposes an OpenAI-compatible API, so PimpMyCV uses the same `openai`
+Python library for all three providers. The separate `ollama` Python package is
+not required.
 
 OpenAI:
 
@@ -66,6 +72,13 @@ Use `--model` and `--endpoint` to override provider defaults.
 pimpmycv --provider openai --cv examples/cv.zip --job examples/job.txt
 ```
 
+Add your own rewrite preferences with a file:
+
+```powershell
+pimpmycv --provider openai --cv examples/cv.zip --job examples/job.txt `
+  --instructions examples/instructions.txt
+```
+
 For Azure or Ollama, change `--provider` to `azure` or `ollama`.
 
 After compiling a draft, the CLI shows the agent's change summary and writes:
@@ -87,6 +100,7 @@ Useful options:
 ```text
 --output PATH              Output directory
 --main-tex PATH            Main .tex path inside the ZIP
+--instructions PATH        Additional .txt or .md rewrite instructions
 --max-attempts N           Compile/fix attempts
 --max-feedback-rounds N    User-requested revisions
 --no-feedback              Accept the first compilable draft

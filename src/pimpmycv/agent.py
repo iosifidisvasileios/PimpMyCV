@@ -78,6 +78,7 @@ def tailor_cv(
     *,
     cv_tex: str,
     job_description: str,
+    user_instructions: str = "",
     output_tex: Path,
     source_dir: Path,
     model: str = "gpt-5.6-sol",
@@ -99,6 +100,7 @@ def tailor_cv(
         "task.md",
         cv_tex=cv_tex,
         job_description=job_description,
+        user_instructions=user_instructions.strip(),
     )
     if response_options is None:
         response_options = {
