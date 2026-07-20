@@ -16,7 +16,11 @@ class FakeResponses:
         call = SimpleNamespace(
             type="function_call",
             name="save_and_compile_cv",
-            arguments='{"latex": ' + __import__("json").dumps(latex) + "}",
+            arguments=(
+                '{"latex": '
+                + __import__("json").dumps(latex)
+                + ', "summary": "Focused the CV on relevant experience."}'
+            ),
             call_id=f"call-{len(self.requests)}",
         )
         return SimpleNamespace(id=f"response-{len(self.requests)}", output=[call])
@@ -101,3 +105,68 @@ def test_agent_replays_history_for_stateless_provider(monkeypatch, tmp_path: Pat
     assert "reasoning" not in retry
     assert retry["input"][0]["role"] == "user"
     assert retry["input"][-1]["type"] == "function_call_output"
+
+
+def test_agent_applies_user_feedback_in_same_response_chain(monkeypatch, tmp_path: Path):
+    responses = FakeResponses(["first draft", "revised draft"])
+    client = SimpleNamespace(responses=responses)
+    expected_pdf = tmp_path / "tailored_cv.pdf"
+    monkeypatch.setattr(
+        agent,
+        "compile_latex",
+        lambda *args, **kwargs: CompileResult(True, "pdflatex", expected_pdf, "ok"),
+    )
+    reviews = []
+
+    def review(result, summary, draft_number):
+        reviews.append((summary, draft_number))
+        return "Emphasize the Python automation work." if draft_number == 1 else None
+
+    result = agent.tailor_cv(
+        client,
+        cv_tex="original",
+        job_description="job",
+        output_tex=tmp_path / "tailored_cv.tex",
+        source_dir=tmp_path,
+        feedback_callback=review,
+    )
+
+    assert result.success
+    assert [number for _, number in reviews] == [1, 2]
+    assert len(responses.requests) == 2
+    revision = responses.requests[1]
+    assert revision["previous_response_id"] == "response-1"
+    assert revision["input"][0]["type"] == "function_call_output"
+    assert '"success": true' in revision["input"][0]["output"]
+    assert "Emphasize the Python automation work" in revision["input"][1]["content"]
+    assert (tmp_path / "tailored_cv.tex").read_text(encoding="utf-8") == "revised draft"
+
+
+def test_stateless_provider_replays_user_feedback(monkeypatch, tmp_path: Path):
+    responses = FakeResponses(["first draft", "revised draft"])
+    client = SimpleNamespace(responses=responses)
+    monkeypatch.setattr(
+        agent,
+        "compile_latex",
+        lambda *args, **kwargs: CompileResult(
+            True, "pdflatex", tmp_path / "tailored_cv.pdf", "ok"
+        ),
+    )
+    feedback = iter(["Shorten the profile.", None])
+
+    result = agent.tailor_cv(
+        client,
+        cv_tex="original",
+        job_description="job",
+        output_tex=tmp_path / "tailored_cv.tex",
+        source_dir=tmp_path,
+        feedback_callback=lambda *args: next(feedback),
+        supports_stateful_responses=False,
+        response_options={},
+    )
+
+    assert result.success
+    revision = responses.requests[1]
+    assert "previous_response_id" not in revision
+    assert revision["input"][-2]["type"] == "function_call_output"
+    assert "Shorten the profile" in revision["input"][-1]["content"]

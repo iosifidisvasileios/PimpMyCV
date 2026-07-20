@@ -84,6 +84,23 @@ The command creates:
 - `build/tailored_cv.zip`, containing the rewritten `.tex`, generated PDF, and
   every support file from the input archive
 
+Before those final files are accepted, the command creates `build/draft_cv.pdf`
+and `build/draft_cv.zip`, prints the agent's rewrite summary, and prompts:
+
+```text
+Enter feedback for another revision, or press Enter to accept:
+```
+
+Enter a suggestion such as `Make the profile shorter and emphasize Python
+automation`. The agent reflects on it, produces and compiles another draft, and
+asks again. Press Enter when the draft is satisfactory. Up to five
+user-requested revisions are allowed by default; change this with
+`--max-feedback-rounds`. For scripts and unattended runs, use `--no-feedback`
+to accept the first compilable draft.
+
+See the [short feedback-loop example](examples/feedback-loop.md) for a complete
+two-draft terminal interaction.
+
 Set `PIMPMYCV_PROVIDER` and `PIMPMYCV_MODEL` to avoid repeating provider and
 model flags. To choose a compiler explicitly, pass for example
 `--engine xelatex`.
@@ -105,7 +122,10 @@ font, and style paths are resolved from the main document's directory.
    remain available.
 5. On a compiler error, diagnostics are returned to the same response chain and
    the model tries again, up to `--max-attempts`.
-6. The command exits successfully only when a non-empty PDF exists, then creates
+6. After a successful compilation, the user reviews the draft PDF and the
+   agent's change summary. Feedback is sent back into the same agent context for
+   reflection, revision, and recompilation.
+7. Pressing Enter accepts the draft. The command then creates the final PDF and
    a tailored ZIP containing the updated project and PDF.
 
 This is intentionally not built on a larger agent framework: the Responses API

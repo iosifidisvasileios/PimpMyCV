@@ -60,6 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Maximum compile/fix attempts (default: 4)",
     )
+    parser.add_argument(
+        "--max-feedback-rounds",
+        type=int,
+        default=5,
+        help="Maximum user-requested revisions (default: 5)",
+    )
+    parser.add_argument(
+        "--no-feedback",
+        action="store_true",
+        help="Skip interactive draft review and accept the first compilable CV",
+    )
     return parser
 
 
@@ -77,6 +88,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"Job description not found: {job_path}")
     if args.max_attempts < 1:
         raise SystemExit("--max-attempts must be at least 1.")
+    if args.max_feedback_rounds < 0:
+        raise SystemExit("--max-feedback-rounds cannot be negative.")
 
     try:
         selected_engine = find_engine(args.engine)
@@ -93,11 +106,30 @@ def main(argv: list[str] | None = None) -> None:
 
     output_pdf = output_dir / "tailored_cv.pdf"
     output_zip = output_dir / "tailored_cv.zip"
+    draft_pdf = output_dir / "draft_cv.pdf"
+    draft_zip = output_dir / "draft_cv.zip"
     print(
         f"Using {backend.provider} model {backend.model} and {selected_engine}..."
     )
     try:
         with extract_cv_archive(cv_path, args.main_tex) as project:
+            def request_feedback(result, summary: str, draft_number: int) -> str | None:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(result.pdf_path, draft_pdf)
+                write_tailored_archive(project, draft_zip, pdf_path=result.pdf_path)
+                print(f"\nDraft {draft_number} is ready:")
+                print(f"  PDF:     {draft_pdf}")
+                print(f"  Project: {draft_zip}")
+                print("\nAgent's rewrite summary:")
+                print(summary)
+                try:
+                    feedback = input(
+                        "\nEnter feedback for another revision, or press Enter to accept: "
+                    )
+                except EOFError:
+                    return None
+                return feedback.strip() or None
+
             result = tailor_cv(
                 backend.client,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
@@ -107,6 +139,8 @@ def main(argv: list[str] | None = None) -> None:
                 model=backend.model,
                 engine=selected_engine,
                 max_attempts=args.max_attempts,
+                max_feedback_rounds=args.max_feedback_rounds,
+                feedback_callback=None if args.no_feedback else request_feedback,
                 supports_stateful_responses=backend.supports_stateful_responses,
                 response_options=backend.response_options,
             )
