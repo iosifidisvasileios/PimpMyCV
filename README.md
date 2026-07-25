@@ -87,19 +87,14 @@ Ollama:
 ollama pull qwen3:8b
 ```
 
-Example using an Ollama model named `XYZ`:
+Then run:
 
 ```powershell
-# Create the local XYZ name from a tool-capable model.
-ollama cp qwen3:8b XYZ
-
-pimpmycv --provider ollama --model XYZ `
+pimpmycv --provider ollama --model qwen3:8b `
   --cv examples/cv.zip `
   --job examples/job.txt `
   --instructions examples/instructions.txt
 ```
-
-If `XYZ` already exists in `ollama list`, skip the `ollama cp` command.
 
 Use `--model` and `--endpoint` to override provider defaults.
 
