@@ -103,64 +103,36 @@ If `XYZ` already exists in `ollama list`, skip the `ollama cp` command.
 
 Use `--model` and `--endpoint` to override provider defaults.
 
-## Run
+## Usage
 
 ```powershell
 pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt
 ```
 
-Add your own rewrite preferences with a file:
+Add rewrite preferences:
 
 ```powershell
 pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt `
   --instructions examples/instructions.txt
 ```
 
-Available providers are `openai`, `azure`, and `ollama`.
+After compiling a draft, review the PDF and provide feedback or press Enter to accept. The CLI writes:
 
-To see each model and compiler step while the command runs, add `--verbose`:
+- `build/draft_cv.pdf` / `build/draft_cv.zip` (for review)
+- `build/tailored_cv.pdf` / `build/tailored_cv.zip` (final accepted version)
 
-```powershell
-pimpmycv --provider ollama --model XYZ --cv examples/cv.zip `
-  --job examples/job.txt --verbose
-```
+Use `--debug` to save model responses, LaTeX candidates, and compiler logs to `OUTPUT/debug/`. Debug artifacts may contain personal information—review before sharing.
 
-Use `--debug` for detailed response information and persistent diagnostics. It
-also enables progress logging and writes the following under `OUTPUT/debug/`:
+## Options
 
 ```text
-response-01.txt
-candidate-01.tex
-candidate-01.log
-```
-
-Debug artifacts can contain CV or job-description content. Do not share them
-without reviewing and redacting personal information.
-
-After compiling a draft, the CLI shows the agent's change summary and writes:
-
-- `build/draft_cv.pdf`
-- `build/draft_cv.zip`
-
-Open the PDF, then enter feedback for another revision or press Enter to accept.
-The accepted result is written to:
-
-- `build/tailored_cv.pdf`
-- `build/tailored_cv.zip`
-
-See the [short feedback-loop example](examples/feedback-loop.md) for a sample
-terminal interaction.
-
-Useful options:
-
-```text
---output PATH              Output directory
+--output PATH              Output directory (default: build)
 --main-tex PATH            Main .tex path inside the ZIP
 --instructions PATH        Additional .txt or .md rewrite instructions
---max-attempts N           Compile/fix attempts
---max-feedback-rounds N    User-requested revisions
+--max-attempts N           Compile/fix attempts (default: 4)
+--max-feedback-rounds N    User-requested revisions (default: 5)
 --no-feedback              Accept the first compilable draft
---engine xelatex           Select a LaTeX engine
+--engine ENGINE            LaTeX engine: auto, latexmk, pdflatex, xelatex, lualatex, tectonic
 --verbose                  Show model and compiler progress
 --debug                    Save responses, candidates, and compiler logs
 ```
