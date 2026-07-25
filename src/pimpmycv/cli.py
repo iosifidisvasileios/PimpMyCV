@@ -130,8 +130,11 @@ def validate_input_paths(
 
 
 def main(argv: list[str] | None = None) -> None:
+    logger.debug("[CLI] main() called with argv: %s", argv)
     args = build_parser().parse_args(argv)
+    logger.debug("[CLI] Parsed arguments: provider=%s, model=%s, engine=%s, cv=%s, job=%s", args.provider, args.model, args.engine, args.cv, args.job)
     configure_logging(verbose=args.verbose, debug=args.debug)
+    logger.debug("[CLI] Logging configured - verbose=%s, debug=%s", args.verbose, args.debug)
     cv_path = args.cv.expanduser().resolve()
     job_path = args.job.expanduser().resolve()
     instructions_path = (
@@ -140,7 +143,9 @@ def main(argv: list[str] | None = None) -> None:
     output_dir = args.output.expanduser().resolve()
 
     try:
+        logger.debug("[CLI] Validating input paths...")
         validate_input_paths(cv_path, job_path, instructions_path)
+        logger.debug("[CLI] Input paths validated successfully")
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     if args.max_attempts < 1:
@@ -149,15 +154,19 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("--max-feedback-rounds cannot be negative.")
 
     try:
+        logger.debug("[CLI] Finding LaTeX engine: %s", args.engine)
         selected_engine = find_engine(args.engine)
+        logger.debug("[CLI] Selected LaTeX engine: %s", selected_engine)
     except (RuntimeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
     try:
+        logger.debug("[CLI] Creating backend for provider: %s", args.provider)
         backend = create_backend(
             args.provider,
             model=args.model,
             endpoint=args.endpoint,
         )
+        logger.debug("[CLI] Backend created - provider=%s, model=%s, stateful=%s", backend.provider, backend.model, backend.supports_stateful_responses)
     except ProviderConfigError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -176,12 +185,16 @@ def main(argv: list[str] | None = None) -> None:
             output_dir / "debug",
         )
     try:
+        logger.debug("[CLI] Extracting CV archive: %s", cv_path)
         with extract_cv_archive(cv_path, args.main_tex) as project:
             logger.info("Main LaTeX document: %s", project.main_relative_path)
+            logger.debug("[CLI] Archive extracted - root=%s, members=%d", project.root, len(project.members))
             def request_feedback(result, summary: str, draft_number: int) -> str | None:
+                logger.debug("[CLI] request_feedback() called - draft_number=%d", draft_number)
                 output_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(result.pdf_path, draft_pdf)
                 write_tailored_archive(project, draft_zip, pdf_path=result.pdf_path)
+                logger.debug("[CLI] Draft files written - PDF=%s, ZIP=%s", draft_pdf, draft_zip)
                 print(f"\nDraft {draft_number} is ready:")
                 print(f"  PDF:     {draft_pdf}")
                 print(f"  Project: {draft_zip}")
@@ -195,6 +208,7 @@ def main(argv: list[str] | None = None) -> None:
                     return None
                 return feedback.strip() or None
 
+            logger.debug("[CLI] Calling tailor_cv() with max_attempts=%d, max_feedback_rounds=%d", args.max_attempts, args.max_feedback_rounds)
             result = tailor_cv(
                 backend.client,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
@@ -215,9 +229,13 @@ def main(argv: list[str] | None = None) -> None:
                 response_options=backend.response_options,
                 debug_dir=output_dir / "debug" if args.debug else None,
             )
+            logger.debug("[CLI] tailor_cv() completed successfully")
+            logger.debug("[CLI] Writing final output files...")
             output_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(result.pdf_path, output_pdf)
+            logger.debug("[CLI] Copied PDF to: %s", output_pdf)
             write_tailored_archive(project, output_zip, pdf_path=result.pdf_path)
+            logger.debug("[CLI] Wrote archive to: %s", output_zip)
     except (
         ArchiveError,
         OpenAIError,
