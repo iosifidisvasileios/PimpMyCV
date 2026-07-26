@@ -5,14 +5,27 @@
 ![Providers: OpenAI, Azure OpenAI, Ollama](https://img.shields.io/badge/providers-OpenAI%20%7C%20Azure%20OpenAI%20%7C%20Ollama-412991)
 ![Output: LaTeX and PDF](https://img.shields.io/badge/output-LaTeX%20%2B%20PDF-008080)
 
-![A robot tailor edits a LaTeX CV while a rubber duck reviews the generated PDF](assets/pimpmycv-tailor.png)
+![A robot edits a LaTeX CV while a rubber duck reviews the generated PDF](assets/pimpmycv-tailor.png)
 
-PimpMyCV tailors a LaTeX CV to a job description, compiles it, and lets you
-request revisions before accepting the final PDF. It supports OpenAI, Azure
-OpenAI, and Ollama.
+## One CV project. A role-specific build for every application.
 
-The original ZIP is not modified, its support files are preserved, and the
-agent is instructed not to invent experience or credentials.
+PimpMyCV turns each application into a controlled rewrite-and-build loop. Give
+it your complete LaTeX project, a job description, and optional instructions.
+The agent finds the strongest evidence already present in your CV, rewrites and
+reorders the content for the role, and compiles the result. When LaTeX
+complains—and LaTeX will complain—the agent reads the diagnostics and tries
+again.
+
+When the PDF builds, you stay in control: review the draft, request another
+revision, or accept it. Your template and support files survive the process,
+your original ZIP stays untouched, and unsupported achievements do not
+magically appear because a job ad asked nicely.
+
+Use OpenAI, Azure OpenAI, or Ollama. Get back both the ready-to-send PDF and the
+rewritten LaTeX project.
+
+**Less keyword soup. Fewer broken braces. No late-night diplomacy with
+`pdflatex`.**
 
 ## Install on Ubuntu
 
