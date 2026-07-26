@@ -1,33 +1,39 @@
 # PimpMyCV
 
-PimpMyCV is a small Python CLI that rewrites a LaTeX CV for a job description,
-compiles it, and lets you review and revise the result. It supports OpenAI,
-Azure OpenAI, and Ollama. The original CV is never modified, and the agent is
-instructed not to invent experience or credentials.
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-blue)
+![Providers: OpenAI, Azure OpenAI, Ollama](https://img.shields.io/badge/providers-OpenAI%20%7C%20Azure%20OpenAI%20%7C%20Ollama-412991)
+![Output: LaTeX and PDF](https://img.shields.io/badge/output-LaTeX%20%2B%20PDF-008080)
 
-## Requirements
+PimpMyCV is a small Python CLI that tailors a LaTeX CV to a job description,
+compiles it, and lets you request revisions before accepting the final PDF.
+It supports OpenAI, Azure OpenAI, and local Ollama models.
 
-- Python 3.10+
-- `latexmk` with TeX Live or MiKTeX on `PATH` (recommended), or Tectonic
-- OpenAI, Azure OpenAI, or Ollama 0.13.3+
+The input ZIP is never modified. The agent preserves the main document's LaTeX
+preamble and is instructed not to invent experience, skills, or credentials.
 
 ## Install
 
-```powershell
+Requirements:
+
+- Python 3.10+
+- A LaTeX compiler on `PATH`
+- OpenAI, Azure OpenAI, or a running Ollama server
+
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+source .venv/bin/activate                 # Linux or macOS
+# .\.venv\Scripts\Activate.ps1            # PowerShell
+python -m pip install -e .
 ```
 
-For `.env` file support (optional):
+For tests and `.env` file support:
 
-```powershell
-python -m pip install -e ".[dotenv]"
+```bash
+python -m pip install -e ".[dev,dotenv]"
 ```
 
-On Linux/macOS, activate with `source .venv/bin/activate`.
-
-Install a LaTeX distribution on Linux:
+Install `latexmk` and common LaTeX packages on Linux:
 
 ```bash
 # Ubuntu or Debian
@@ -43,152 +49,134 @@ sudo pacman -S biber texlive-basic texlive-binextra texlive-latexextra
 
 ## Inputs
 
-- `--cv`: a ZIP containing the main `.tex` file and any styles, images, fonts,
-  or `\input` files it needs.
-- `--job`: a UTF-8 `.txt` job description.
-- `--instructions`: an optional UTF-8 `.txt` or `.md` file with your preferred
-  tone, length, ordering, emphasis, or formatting.
+- `--cv`: a ZIP containing the complete LaTeX project
+- `--job`: a UTF-8 `.txt` job description
+- `--instructions`: an optional UTF-8 `.txt` or `.md` file with your rewrite
+  preferences
 
-The main LaTeX file is detected automatically. If the ZIP contains more than
-one document, pass its path explicitly: `--main-tex cv/main.tex`.
+The ZIP must include the main `.tex` document and every referenced style,
+image, font, bibliography, and `\input` file. Create it from inside the CV
+project directory:
 
-When available, PimpMyCV prefers `latexmk` and runs:
+```bash
+zip -r ../cv.zip .
+```
+
+The main document is detected automatically. If the ZIP contains multiple
+documents, select one using its path inside the archive:
+
+```bash
+pimpmycv --cv cv.zip --main-tex main.tex --job examples/job.txt
+```
+
+Archives are limited to 1,000 files and 100 MB uncompressed. Unsafe paths,
+duplicate paths, and symbolic links are rejected.
+
+## Providers
+
+| Provider | Required configuration | Default model |
+| --- | --- | --- |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, plus `AZURE_OPENAI_API_VERSION` or `OPENAI_API_VERSION` | deployment name |
+| Ollama | Server at `http://localhost:11434` | `qwen3:8b` |
+
+Use `--model` to override the model or Azure deployment and `--endpoint` to
+override the endpoint. Other optional variables are listed in `.env.example`.
+To load that configuration from `.env`, install the `dotenv` extra first.
+
+Ollama uses its OpenAI-compatible API through the `openai` Python package, so
+no separate Ollama Python package is required:
+
+```bash
+ollama serve
+ollama pull qwen3:8b
+```
+
+Azure OpenAI example configuration:
+
+```bash
+export AZURE_OPENAI_API_KEY="your-key"
+export AZURE_OPENAI_ENDPOINT="https://YOUR-RESOURCE.openai.azure.com"
+export AZURE_OPENAI_DEPLOYMENT="your-deployment"
+export AZURE_OPENAI_API_VERSION="your-supported-api-version"
+```
+
+## Run
+
+Complete Ollama example:
+
+```bash
+pimpmycv \
+  --provider ollama \
+  --model qwen3:8b \
+  --cv /path/to/cv.zip \
+  --job examples/job.txt \
+  --instructions examples/instructions.txt \
+  --output build \
+  --engine latexmk
+```
+
+With `--engine auto`, the first available engine is selected in this order:
+`latexmk`, `pdflatex`, `xelatex`, `lualatex`, then `tectonic`. The recommended
+`latexmk` workflow is:
 
 ```text
 latexmk -pdf -interaction=nonstopmode -file-line-error -f main.tex
 ```
 
-This also runs bibliography tools such as Biber when the CV requires them. The
-agent can rewrite CV content, but the original LaTeX preamble is preserved.
+After each successful compilation, review `build/draft_cv.pdf`. Enter feedback
+to request another revision, or press Enter to accept it. Use `--no-feedback`
+to accept the first compilable draft automatically.
 
-## Configure a provider
-
-Configuration can be set via environment variables or a `.env` file (requires
-`python-dotenv`). Copy `.env.example` to `.env` and fill in your credentials:
-
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
-
-| Provider | Configuration | Default model |
-| --- | --- | --- |
-| OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
-| AzureOpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` | deployment name |
-| Ollama | local service at `http://localhost:11434` | `qwen3:8b` |
-
-Ollama exposes an OpenAI-compatible API, so PimpMyCV uses the same `openai`
-Python library. The separate `ollama` Python package is not required. If an
-Ollama model returns LaTeX as ordinary text instead of a function call,
-PimpMyCV detects and compiles that response as a fallback.
-
-Azure OpenAI with .env file:
-
-```bash
-# Add to .env:
-AZURE_OPENAI_API_KEY=your-azure-key
-AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com
-AZURE_OPENAI_DEPLOYMENT=YOUR-DEPLOYMENT-NAME
-AZURE_OPENAI_API_VERSION=YOUR-SUPPORTED-API-VERSION
-
-# Then run:
-pimpmycv --provider azure --cv examples/cv.zip --job examples/job.txt
-```
-
-Or set environment variables directly:
-
-```powershell
-$env:AZURE_OPENAI_API_KEY = "your-azure-key"
-$env:AZURE_OPENAI_ENDPOINT = "https://YOUR-RESOURCE.openai.azure.com"
-$env:AZURE_OPENAI_DEPLOYMENT = "YOUR-DEPLOYMENT-NAME"
-$env:AZURE_OPENAI_API_VERSION = "YOUR-SUPPORTED-API-VERSION"
-
-pimpmycv --provider azure `
-  --cv examples/cv.zip `
-  --job examples/job.txt
-```
-
-Ollama:
-
-```powershell
-ollama pull qwen3:8b
-```
-
-Then run:
-
-```powershell
-pimpmycv --provider ollama --model qwen3:8b `
-  --cv examples/cv.zip `
-  --job examples/job.txt `
-  --instructions examples/instructions.txt
-```
-
-Use `--model` and `--endpoint` to override provider defaults.
-
-## Usage
-
-```powershell
-pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt
-```
-
-Add rewrite preferences:
-
-```powershell
-pimpmycv --provider ollama --model XYZ --cv examples/cv.zip --job examples/job.txt `
-  --instructions examples/instructions.txt
-```
-
-After compiling a draft, review the PDF and provide feedback or press Enter to accept. The CLI writes:
-
-- `build/draft_cv.pdf` / `build/draft_cv.zip` (for review)
-- `build/tailored_cv.pdf` / `build/tailored_cv.zip` (final accepted version)
-
-Use `--debug` to save model responses, LaTeX candidates, and compiler logs to `OUTPUT/debug/`. Debug artifacts may contain personal information—review before sharing.
-
-## Options
+The final output is:
 
 ```text
---output PATH              Output directory (default: build)
---main-tex PATH            Main .tex path inside the ZIP
---instructions PATH        Additional .txt or .md rewrite instructions
---max-attempts N           Compile/fix attempts (default: 4)
---max-feedback-rounds N    User-requested revisions (default: 5)
---no-feedback              Accept the first compilable draft
---engine ENGINE            LaTeX engine: auto, latexmk, pdflatex, xelatex, lualatex, tectonic
---verbose                  Show model and compiler progress
---debug                    Save responses, candidates, and compiler logs
+build/tailored_cv.pdf
+build/tailored_cv.zip
 ```
+
+The final ZIP contains the rewritten `.tex` document, the original support
+files, and the generated PDF. Run `pimpmycv --help` for all CLI options.
+
+## Diagnostics
+
+- `--verbose` shows model, candidate, compiler, and feedback-loop progress.
+- `--debug` adds detailed logs and saves responses, LaTeX candidates,
+  reasoning when available, and compiler logs under `OUTPUT/debug/`.
+
+Debug artifacts can contain personal information. Review them before sharing.
 
 ## Prompts
 
 Agent prompts are editable Markdown files in `src/pimpmycv/prompts/`:
-
-- `system.md`
-- `task.md`
-- `feedback.md`
-- `tool-required.md`
-- `compile-failure.md`
+`system.md`, `task.md`, `feedback.md`, `compile-failure.md`, and
+`tool-required.md`.
 
 ## Tests
 
-```powershell
+```bash
 pytest
 ```
 
-Tests use a fake model client, so they do not spend API credits or require a
-LaTeX installation.
-
-To verify an installed LaTeX engine by compiling a minimal PDF:
+Check an installed LaTeX compiler:
 
 ```bash
 pytest tests/test_latex_integration.py -q -rs
 ```
 
-This test uses `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `tectonic` from
-`PATH`. It is skipped when none is installed.
+Compile your own ZIP:
+
+```bash
+pytest tests/test_zip_compilation.py::test_compile_latex_from_zip \
+  --zip-path /path/to/cv.zip \
+  --engine latexmk \
+  -q -rs
+```
+
+Integration tests are skipped when their input or compiler is unavailable.
 
 ## Privacy
 
-The CV and job description are sent to the selected endpoint. A local Ollama
-endpoint keeps them on that machine; cloud endpoints receive their contents.
-Always review the generated CV before using it.
+The CV, job description, and instructions are sent to the selected endpoint.
+A local Ollama endpoint keeps them on that machine; OpenAI and Azure OpenAI
+receive their contents. Always review the generated CV before using it.
