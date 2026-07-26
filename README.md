@@ -57,6 +57,14 @@ agent can rewrite CV content, but the original LaTeX preamble is preserved.
 
 ## Configure a provider
 
+Configuration can be set via environment variables or a `.env` file. Copy
+`.env.example` to `.env` and fill in your credentials:
+
+```bash
+cp .env.example .env
+# Edit .env with your credentials
+```
+
 | Provider | Configuration | Default model |
 | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` |
@@ -68,7 +76,20 @@ Python library. The separate `ollama` Python package is not required. If an
 Ollama model returns LaTeX as ordinary text instead of a function call,
 PimpMyCV detects and compiles that response as a fallback.
 
-Azure OpenAI:
+Azure OpenAI with .env file:
+
+```bash
+# Add to .env:
+AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT=YOUR-DEPLOYMENT-NAME
+AZURE_OPENAI_API_VERSION=YOUR-SUPPORTED-API-VERSION
+
+# Then run:
+pimpmycv --provider azure --cv examples/cv.zip --job examples/job.txt
+```
+
+Or set environment variables directly:
 
 ```powershell
 $env:AZURE_OPENAI_API_KEY = "your-azure-key"

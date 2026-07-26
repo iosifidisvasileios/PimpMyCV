@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
+from pathlib import Path
 from typing import Any, Literal
 
+from dotenv import load_dotenv
 from openai import AzureOpenAI, OpenAI
 
 
@@ -13,6 +15,9 @@ PROVIDERS: tuple[ProviderName, ...] = ("openai", "azure", "ollama")
 
 class ProviderConfigError(ValueError):
     """Raised when the selected model provider is not configured."""
+
+# Load .env file if it exists in the current directory or parent directories
+load_dotenv()
 
 
 @dataclass(frozen=True)
@@ -37,7 +42,15 @@ def create_backend(
     model: str | None = None,
     endpoint: str | None = None,
 ) -> Backend:
-    """Create an OpenAI-SDK client configured for the chosen endpoint."""
+    """Create an OpenAI-SDK client configured for the chosen endpoint.
+    
+    Environment variables can be set directly or loaded from a .env file.
+    For Azure, the following variables are required:
+    - AZURE_OPENAI_API_KEY
+    - AZURE_OPENAI_ENDPOINT
+    - AZURE_OPENAI_DEPLOYMENT (or --model)
+    - AZURE_OPENAI_API_VERSION or OPENAI_API_VERSION
+    """
     if provider == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
