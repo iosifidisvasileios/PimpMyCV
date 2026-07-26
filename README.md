@@ -95,6 +95,20 @@ pimpmycv --cv examples/sample_cv.zip \
 --instructions examples/instructions.txt \
 --output build
 ```
+The provider and model are read from `.env`. After each successful draft,
+review `build/draft_cv.pdf`, enter feedback to request another revision, or
+press Enter to accept it. Use `--no-feedback` to accept the first compilable
+draft.
+
+Final files:
+
+```text
+build/tailored_cv.pdf
+build/tailored_cv.zip
+```
+
+Use `--verbose` for progress messages, `--debug` for detailed logs and saved
+attempts, and `pimpmycv --help` for all options.
 
 ### Browser GUI
 
@@ -113,20 +127,6 @@ can come from `.env` as before, or can be entered into the password field for
 the current browser session. When Ollama is selected, the model dropdown offers
 `gemma4:26b` and `gemma4:e4b`.
 
-The provider and model are read from `.env`. After each successful draft,
-review `build/draft_cv.pdf`, enter feedback to request another revision, or
-press Enter to accept it. Use `--no-feedback` to accept the first compilable
-draft.
-
-Final files:
-
-```text
-build/tailored_cv.pdf
-build/tailored_cv.zip
-```
-
-Use `--verbose` for progress messages, `--debug` for detailed logs and saved
-attempts, and `pimpmycv --help` for all options.
 
 ## Architecture
 
