@@ -127,6 +127,10 @@ can come from `.env` as before, or can be entered into the password field for
 the current browser session. When Ollama is selected, the model dropdown offers
 `gemma4:26b` and `gemma4:e4b`.
 
+<video src="https://github.com/user-attachments/assets/2b7aab70-f6fd-4b6c-9983-8c69200699b7"
+       controls
+       width="800">
+</video>
 
 ## Architecture
 
