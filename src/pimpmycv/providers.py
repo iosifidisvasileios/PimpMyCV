@@ -25,6 +25,13 @@ class ProviderConfigError(ValueError):
 # Load .env file if it exists and dotenv is available
 if _has_dotenv:
     load_dotenv()
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug("[PROVIDERS] dotenv loaded successfully")
+else:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug("[PROVIDERS] dotenv not available, using environment variables only")
 
 
 @dataclass(frozen=True)

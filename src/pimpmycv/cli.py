@@ -161,6 +161,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(str(exc)) from exc
     try:
         logger.debug("[CLI] Creating backend for provider: %s", args.provider)
+        logger.debug("[CLI] Model from args: %s, PIMPMYCV_MODEL env: %s", args.model, os.getenv("PIMPMYCV_MODEL"))
+        if args.provider == "ollama":
+            logger.debug("[CLI] OLLAMA_MODEL env: %s", os.getenv("OLLAMA_MODEL"))
         backend = create_backend(
             args.provider,
             model=args.model,
