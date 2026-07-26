@@ -91,6 +91,7 @@ def create_backend(
         api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv(
             "OPENAI_API_VERSION"
         )
+        logger.debug("[PROVIDERS] Azure config - endpoint=%s, deployment=%s, api_version=%s", azure_endpoint, deployment, api_version)
         missing = [
             name
             for name, value in (
