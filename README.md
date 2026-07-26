@@ -12,20 +12,17 @@
 PimpMyCV turns each application into a controlled rewrite-and-build loop. Give
 it your complete LaTeX project, a job description, and optional instructions.
 The agent finds the strongest evidence already present in your CV, rewrites and
-reorders the content for the role, and compiles the result. When LaTeX
-complains—and LaTeX will complain—the agent reads the diagnostics and tries
-again.
+reorders the content for the role, and compiles the result. 
 
 When the PDF builds, you stay in control: review the draft, request another
 revision, or accept it. Your template and support files survive the process,
 your original ZIP stays untouched, and unsupported achievements do not
 magically appear because a job ad asked nicely.
 
-Use OpenAI, Azure OpenAI, or Ollama. Get back both the ready-to-send PDF and the
+Use Ollama, OpenAI, or Azure OpenAI. Get back both the ready-to-send PDF and the
 rewritten LaTeX project.
 
-**Less keyword soup. Fewer broken braces. No late-night diplomacy with
-`pdflatex`.**
+**Less keyword soup. Fewer broken braces. No late-night re-writting.**
 
 ## Install on Ubuntu
 
@@ -141,13 +138,6 @@ graph TB
     Draft -->|Revise| Feedback --> Agent
     Draft -->|Accept| Final
     Archive --> Final
-```
-
-## Tests
-
-```bash
-pytest
-pytest tests/test_latex_integration.py -q -rs
 ```
 
 The agent prompts are editable in `src/pimpmycv/prompts/`.
