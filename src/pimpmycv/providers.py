@@ -5,8 +5,14 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from dotenv import load_dotenv
 from openai import AzureOpenAI, OpenAI
+
+# Optional dotenv support for .env files
+try:
+    from dotenv import load_dotenv
+    _has_dotenv = True
+except ImportError:
+    _has_dotenv = False
 
 
 ProviderName = Literal["openai", "azure", "ollama"]
@@ -16,8 +22,9 @@ PROVIDERS: tuple[ProviderName, ...] = ("openai", "azure", "ollama")
 class ProviderConfigError(ValueError):
     """Raised when the selected model provider is not configured."""
 
-# Load .env file if it exists in the current directory or parent directories
-load_dotenv()
+# Load .env file if it exists and dotenv is available
+if _has_dotenv:
+    load_dotenv()
 
 
 @dataclass(frozen=True)

@@ -10,12 +10,14 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "openai>=2.46,<3",
-  "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=9.1,<10",
+]
+dotenv = [
+  "python-dotenv>=1.0,<2",
 ]
 
 [project.scripts]

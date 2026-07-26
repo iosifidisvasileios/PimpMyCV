@@ -19,6 +19,12 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
+For `.env` file support (optional):
+
+```powershell
+python -m pip install -e ".[dotenv]"
+```
+
 On Linux/macOS, activate with `source .venv/bin/activate`.
 
 Install a LaTeX distribution on Linux:
@@ -57,8 +63,8 @@ agent can rewrite CV content, but the original LaTeX preamble is preserved.
 
 ## Configure a provider
 
-Configuration can be set via environment variables or a `.env` file. Copy
-`.env.example` to `.env` and fill in your credentials:
+Configuration can be set via environment variables or a `.env` file (requires
+`python-dotenv`). Copy `.env.example` to `.env` and fill in your credentials:
 
 ```bash
 cp .env.example .env
