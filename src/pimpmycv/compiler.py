@@ -64,7 +64,7 @@ def compile_latex(
 
     if selected == "latexmk":
         commands = [[
-            selected,
+            "latexmk",
             "-pdf",
             "-interaction=nonstopmode",
             "-file-line-error",

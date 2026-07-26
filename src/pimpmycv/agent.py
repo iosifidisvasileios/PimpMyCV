@@ -78,73 +78,32 @@ TOOLS = [
 ]
 
 
-def _tool_calls(response: Any) -> list[Any]:
-    return [
-        item
-        for item in response.output
-        if getattr(item, "type", None) == "function_call"
-    ]
-
-
-def _response_text(response: Any) -> str:
-    """Collect ordinary text from a Responses API result."""
-    text = getattr(response, "output_text", "") or ""
-    if not text:
-        parts = []
-        for item in response.output:
-            if getattr(item, "type", None) != "message":
-                continue
-            for content in getattr(item, "content", []):
-                value = getattr(content, "text", None)
-                if isinstance(value, str):
-                    parts.append(value)
-        text = "\n".join(parts)
-    return text
-
-
-def _text_candidate(response: Any) -> str | None:
+def _text_candidate(response_text: str) -> str | None:
     """Extract a complete LaTeX document from a non-tool model response."""
-    text = _response_text(response)
-    start = text.find(DOCUMENT_START)
+    start = response_text.find(DOCUMENT_START)
     document_end = r"\end{document}"
-    end = text.rfind(document_end)
+    end = response_text.rfind(document_end)
     if start < 0 or end < start:
         return None
-    return text[start : end + len(document_end)]
-
-
-def _serialise_output(response: Any) -> list[dict[str, Any]]:
-    """Turn response output items back into valid stateless input items."""
-    serialised = []
-    for item in response.output:
-        if hasattr(item, "model_dump"):
-            serialised.append(item.model_dump(exclude_none=True))
-        elif isinstance(item, dict):
-            serialised.append(item)
-        else:
-            serialised.append({key: value for key, value in vars(item).items()})
-    return serialised
+    return response_text[start : end + len(document_end)]
 
 
 def tailor_cv(
-    client: Any,
+    backend: Any,
     *,
     cv_tex: str,
     job_description: str,
     user_instructions: str = "",
     output_tex: Path,
     source_dir: Path,
-    model: str = "gpt-5.6-sol",
     engine: str = "auto",
     max_attempts: int = 4,
     max_feedback_rounds: int = 5,
     feedback_callback: Callable[[CompileResult, str, int], str | None] | None = None,
-    supports_stateful_responses: bool = True,
-    response_options: dict[str, Any] | None = None,
     debug_dir: Path | None = None,
 ) -> CompileResult:
     """Let the model edit, compile, inspect, and retry a LaTeX CV."""
-    logger.debug("[AGENT] tailor_cv() called - model=%s, engine=%s, max_attempts=%d, max_feedback_rounds=%d", model, engine, max_attempts, max_feedback_rounds)
+    logger.debug("[AGENT] tailor_cv() called - model=%s, engine=%s, max_attempts=%d, max_feedback_rounds=%d", backend.model, engine, max_attempts, max_feedback_rounds)
     logger.debug("[AGENT] CV tex length: %d chars, job description length: %d chars, instructions length: %d chars", len(cv_tex), len(job_description), len(user_instructions))
     if max_attempts < 1:
         raise ValueError("max_attempts must be at least 1")
@@ -159,27 +118,20 @@ def tailor_cv(
         job_description=job_description,
         user_instructions=user_instructions.strip(),
     )
-    if response_options is None:
-        response_options = {
-            "reasoning": {"effort": "medium"},
-            "tool_choice": "required",
-            "parallel_tool_calls": False,
-        }
-    logger.debug("[AGENT] Response options: %s", response_options)
+    logger.debug("[AGENT] Response options: %s", backend.response_options)
     history: list[dict[str, Any]] = [{"role": "user", "content": task}]
     if debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
         logger.debug("[AGENT] Debug directory created: %s", debug_dir)
-    logger.info("Requesting initial CV rewrite from model %s.", model)
-    logger.debug("[AGENT] Calling client.responses.create() with model=%s", model)
-    response = client.responses.create(
-        model=model,
-        instructions=system_prompt,
-        input=history,
+    logger.info("Requesting initial CV rewrite from model %s.", backend.model)
+    logger.debug("[AGENT] Calling model API with model=%s", backend.model)
+    response = backend.call_model(
+        system_prompt=system_prompt,
+        messages=history,
         tools=TOOLS,
-        **response_options,
     )
-    logger.debug("[AGENT] Initial response received - response_id=%s", response.id)
+    response_id = backend.get_response_id(response)
+    logger.debug("[AGENT] Initial response received - response_id=%s", response_id)
 
     last_result: CompileResult | None = None
     failed_attempts = 0
@@ -189,19 +141,33 @@ def tailor_cv(
     candidate_number = 0
     while True:
         logger.debug("[AGENT] --- Processing response %d ---", response_number)
-        calls = _tool_calls(response)
+        calls = backend.extract_tool_calls(response)
         call = calls[0] if calls else None
-        response_text = _response_text(response)
-        item_types = [getattr(item, "type", "unknown") for item in response.output]
+        response_text = backend.extract_text(response)
+        # Handle both Responses API (output) and Chat Completions API (choices) formats
+        if hasattr(response, "output"):
+            item_types = [getattr(item, "type", "unknown") for item in response.output]
+        else:
+            item_types = ["chat_completion"]
         logger.debug("[AGENT] Response %d item types: %s", response_number, item_types)
         logger.debug("[AGENT] Response %d has %d tool calls", response_number, len(calls))
+        
+        # Extract and log reasoning if available
+        reasoning = backend.extract_reasoning(response)
+        if reasoning:
+            logger.debug("[AGENT] Response %d contains reasoning (%d chars)", response_number, len(reasoning))
+            if debug_dir is not None:
+                reasoning_path = debug_dir / f"reasoning-{response_number:02d}.txt"
+                reasoning_path.write_text(reasoning, encoding="utf-8")
+                logger.debug("[AGENT] Saved reasoning to: %s", reasoning_path)
+        
         if debug_dir is not None and response_text:
             response_path = debug_dir / f"response-{response_number:02d}.txt"
             response_path.write_text(response_text, encoding="utf-8")
-            logger.debug("Saved model response: %s", response_path)
+            logger.debug("[AGENT] Saved model response: %s", response_path)
         if call is None:
             logger.debug("[AGENT] No tool call detected, attempting to extract LaTeX from text")
-            latex = _text_candidate(response)
+            latex = _text_candidate(response_text)
             summary = "The model returned a LaTeX draft without a change summary."
             if latex is None:
                 logger.warning(
@@ -212,17 +178,21 @@ def tailor_cv(
                 logger.info("Response %d contained a direct LaTeX candidate.", response_number)
                 logger.debug("[AGENT] Extracted LaTeX length: %d chars", len(latex))
         else:
-            logger.info("Response %d called %s.", response_number, call.name)
-            logger.debug("[AGENT] Tool call ID: %s", call.call_id)
-            if call.name != "save_and_compile_cv":
-                raise RuntimeError(f"The model called an unknown tool: {call.name}")
+            tool_name, tool_args_str, call_id = backend.get_tool_call_info(call)
+            if call_id:
+                logger.debug("[AGENT] Tool call ID: %s", call_id)
+            
+            logger.info("Response %d called %s.", response_number, tool_name)
+            
+            if tool_name != "save_and_compile_cv":
+                raise RuntimeError(f"The model called an unknown tool: {tool_name}")
             try:
-                arguments = json.loads(call.arguments)
+                arguments = json.loads(tool_args_str)
                 latex = arguments["latex"]
                 summary = arguments["summary"]
                 logger.debug("[AGENT] Tool arguments parsed - latex=%d chars, summary=%d chars", len(latex), len(summary))
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                raise RuntimeError("The model returned invalid tool arguments.") from exc
+                raise RuntimeError("The model returned invalid tool arguments." + str(tool_args_str)) from exc
 
         if latex is None:
             failed_attempts += 1
@@ -282,15 +252,15 @@ def tailor_cv(
                 logger.debug("[AGENT] User feedback length: %d chars", len(user_feedback))
                 continuation = []
                 if call is not None:
-                    continuation.append({
-                        "type": "function_call_output",
-                        "call_id": call.call_id,
-                        "output": json.dumps({
-                            "success": True,
+                    continuation.extend(backend.format_tool_output(
+                        call,
+                        "",
+                        True,
+                        {
                             "compiler": last_result.engine,
                             "pdf_path": str(last_result.pdf_path),
-                        }),
-                    })
+                        }
+                    ))
                 continuation.append(
                     {
                         "role": "user",
@@ -310,17 +280,17 @@ def tailor_cv(
                 )
                 logger.debug("[AGENT] Compilation log (last 500 chars): %s", last_result.log[-500:])
                 if call is not None:
-                    continuation = [{
-                        "type": "function_call_output",
-                        "call_id": call.call_id,
-                        "output": json.dumps({
-                            "success": False,
+                    continuation = backend.format_tool_output(
+                        call,
+                        "",
+                        False,
+                        {
                             "attempt": failed_attempts,
                             "compiler": last_result.engine,
                             "diagnostics": last_result.log[-8000:],
-                        }),
-                    }]
-                    logger.debug("[AGENT] Sending function_call_output with failure diagnostics")
+                        }
+                    )
+                    logger.debug("[AGENT] Sending tool output with failure diagnostics")
                 else:
                     continuation = [{
                         "role": "user",
@@ -336,30 +306,30 @@ def tailor_cv(
             logger.warning("[AGENT] Max attempts (%d) reached, aborting", max_attempts)
             break
 
-        next_request: dict[str, Any] = {
-            "model": model,
-            "instructions": system_prompt,
-            "tools": TOOLS,
-            **response_options,
-        }
-        if supports_stateful_responses:
-            logger.debug("[AGENT] Using stateful responses API with previous_response_id=%s", response.id)
-            next_request.update(
-                previous_response_id=response.id,
-                input=continuation,
+        logger.info("Requesting another model response.")
+        logger.debug("[AGENT] Calling model API for response %d", response_number + 1)
+        
+        if backend.supports_stateful_responses:
+            response = backend.call_model(
+                system_prompt=system_prompt,
+                messages=continuation,
+                tools=TOOLS,
+                previous_response_id=backend.get_response_id(response),
             )
         else:
-            logger.debug("[AGENT] Using stateless responses API, serialising history")
-            history.extend(_serialise_output(response))
+            logger.debug("[AGENT] Using stateless API, serialising history")
+            history.extend(backend.serialize_for_continuation(response))
             if isinstance(continuation, str):
                 history.append({"role": "user", "content": continuation})
             else:
                 history.extend(continuation)
-            next_request["input"] = history
-        logger.info("Requesting another model response.")
-        logger.debug("[AGENT] Calling client.responses.create() for response %d", response_number + 1)
-        response = client.responses.create(**next_request)
-        logger.debug("[AGENT] Response %d received - response_id=%s", response_number + 1, response.id)
+            response = backend.call_model(
+                system_prompt=system_prompt,
+                messages=history,
+                tools=TOOLS,
+            )
+        response_id = backend.get_response_id(response)
+        logger.debug("[AGENT] Response %d received - response_id=%s", response_number + 1, response_id)
         response_number += 1
 
     details = last_result.log[-2000:] if last_result else "The model never produced a candidate."

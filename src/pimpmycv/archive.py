@@ -34,7 +34,7 @@ class CVProject:
 
 
 def _safe_relative_path(name: str) -> Path:
-    logger.debug("[ARCHIVE] _safe_relative_path() called with name=%s", name)
+    # logger.debug("[ARCHIVE] _safe_relative_path() called with name=%s", name)
     path = PurePosixPath(name.replace("\\", "/"))
     if (
         not name
@@ -44,7 +44,7 @@ def _safe_relative_path(name: str) -> Path:
     ):
         raise ArchiveError(f"Unsafe path in CV archive: {name!r}")
     result = Path(*path.parts)
-    logger.debug("[ARCHIVE] Safe relative path: %s", result)
+    # logger.debug("[ARCHIVE] Safe relative path: %s", result)
     return result
 
 

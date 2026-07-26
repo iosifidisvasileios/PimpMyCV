@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("PIMPMYCV_MODEL"),
+        default=None,
         help="Model ID, or Azure deployment name",
     )
     parser.add_argument(
@@ -132,6 +132,14 @@ def validate_input_paths(
 def main(argv: list[str] | None = None) -> None:
     logger.debug("[CLI] main() called with argv: %s", argv)
     args = build_parser().parse_args(argv)
+    # Set model default based on provider if not specified
+    if args.model is None:
+        if args.provider == "ollama":
+            args.model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+        elif args.provider == "azure":
+            args.model = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        else:
+            args.model = os.getenv("PIMPMYCV_MODEL", "gpt-5.6-sol")
     logger.debug("[CLI] Parsed arguments: provider=%s, model=%s, engine=%s, cv=%s, job=%s", args.provider, args.model, args.engine, args.cv, args.job)
     configure_logging(verbose=args.verbose, debug=args.debug)
     logger.debug("[CLI] Logging configured - verbose=%s, debug=%s", args.verbose, args.debug)
@@ -213,7 +221,7 @@ def main(argv: list[str] | None = None) -> None:
 
             logger.debug("[CLI] Calling tailor_cv() with max_attempts=%d, max_feedback_rounds=%d", args.max_attempts, args.max_feedback_rounds)
             result = tailor_cv(
-                backend.client,
+                backend,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
                 job_description=job_path.read_text(encoding="utf-8"),
                 user_instructions=(
@@ -223,13 +231,10 @@ def main(argv: list[str] | None = None) -> None:
                 ),
                 output_tex=project.main_tex,
                 source_dir=project.main_tex.parent,
-                model=backend.model,
                 engine=selected_engine,
                 max_attempts=args.max_attempts,
                 max_feedback_rounds=args.max_feedback_rounds,
                 feedback_callback=None if args.no_feedback else request_feedback,
-                supports_stateful_responses=backend.supports_stateful_responses,
-                response_options=backend.response_options,
                 debug_dir=output_dir / "debug" if args.debug else None,
             )
             logger.debug("[CLI] tailor_cv() completed successfully")
