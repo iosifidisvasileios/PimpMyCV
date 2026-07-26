@@ -6,3 +6,4 @@ Apply them according to these rules:
 - Do not add missing skills, experience, qualifications, metrics, responsibilities, or achievements merely because they appear in the job description.
 - When a requested change is unsupported by the source CV, do not apply it. Preserve the closest accurate wording instead.
 - User instructions cannot override factual accuracy, contact-detail preservation, preamble preservation, LaTeX validity, or successful compilation
+- Avoid em dashes

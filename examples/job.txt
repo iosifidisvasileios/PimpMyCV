@@ -1,3 +1,0 @@
-We are looking for a Python engineer who can build reliable backend services,
-automate testing and deployment, and collaborate with product stakeholders.
-Experience with SQL, Docker, and clear technical communication is valued.

@@ -1,0 +1,53 @@
+We keep global supply chains moving – and increasingly, this includes how we use AI to support critical operations, decisions, and customer experiences across the world.
+
+We are looking for an AI Engineer who is motivated to turn emerging AI capabilities into reliable, high-impact solutions. You are curious, solution-oriented, and driven to push boundaries, drive continuous improvement, and build production-grade language systems powered by large language models.
+
+Your Responsibilities And Impact
+
+You join our AI Language Systems team that develops high-impact AI products and capabilities used across the organization. We work in agile squads aligned with different products and business domains, collaborating closely with product, research, and operational teams.
+
+We support critical business operations by experimenting with, evaluating, and applying advanced AI, LLM, and NLP methods to solve real problems and move the business forward. Our work goes beyond research prototypes and notebook-based experimentation. We design, build, deploy, and operate reliable, production-grade AI solutions that perform at scale and deliver measurable business value.
+
+As an AI Engineer, you help shape how advanced AI and large language models are applied in real business contexts. The role combines applied AI research and software engineering. You will independently deliver AI and GenAI features of moderate complexity, owning scoped work from requirements clarification through experimentation, implementation, deployment, and initial production support.
+
+You will work on RAG pipelines, agentic search, prompt optimization, model evaluation, fine-tuning workflows, and emerging integration patterns such as Model Context Protocol and agent-to-agent communication.
+
+Key Responsibilities
+
+
+    Independently deliver scoped AI, GenAI, NLP, and RAG features of moderate complexity
+    Develop and enhance RAG pipelines, including document parsing and ingestion, chunking and metadata strategies, query transformation, retrieval and ranking, response generation and grounding
+    Build GenAI features using LLM APIs, structured prompting, and orchestration frameworks (e.g., LangChain, LangGraph, DSPy, etc.)
+    Evaluate AI system performance using practical methods such as retrieval metrics, response quality assessment, hallucination analysis, latency measurement, cost analysis, and failure-case testing
+    Understand engineering trade-offs across model quality, latency, cost, reliability, maintainability, and implementation complexity
+    Own features end-to-end – from clarification and experimentation to deployment and initial support
+    Translate requirements into user stories and provide implementation plans, as well as own features end-to-end throughout the software development lifecycle - from clarification and experimentation to deployment and initial support
+    Identify risks, dependencies, and data limitations early and propose workable solutions
+    Challenge unclear requirements and contribute with pragmatic, value-driven alternatives
+    Stay close to new developments in LLMs, RAG, prompt optimization, model evaluation, fine-tuning, and applied AI frameworks, and assess where they create real business impact
+
+
+What You Bring
+
+Ideally, you have strong hands-on AI engineering experience, understand the fundamentals of modern AI language systems, and can translate product and technical requirements into reliable production implementations with limited guidance.
+
+To succeed and thrive in the role, you bring:
+
+
+    A degree in Computer Science, Software Engineering, AI, Machine Learning, or similar- or equivalent professional experience
+    3+ years of professional AI engineering/applied data science experience, including hands-on experience with AI, NLP, machine learning, deep learning, or language-model-based applications
+    Strong Python skills and experience building clean, maintainable, and production-ready software
+    Hands-on experience with GenAI or LLM-based solutions or open-source models
+    Solid understanding of software engineering practices (testing, CI/CD, version control, etc.)
+    Experience with model evaluation, monitoring, or experiment tracking tools (i.e., MLflow or similar).
+    Ability to work in cross-functional, agile teams and communicate clearly in English
+
+
+Nice to have:
+
+
+    Experience with cloud platforms such as Google Cloud or similar
+    Familiarity with RAG architectures, embeddings, vector databases, and retrieval techniques
+    Exposure to fine-tuning or model optimization approaches
+    Experience with Kedro for building modular, reproducible data and ML pipelines, and KServe for scalable, production-grade model deployment and inference on Kubernetes
+    Knowledge of agentic workflows, tool-calling systems, agentic search, MCP, or A2A integration patterns
