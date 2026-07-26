@@ -282,6 +282,8 @@ def create_backend(
     *,
     model: str | None = None,
     endpoint: str | None = None,
+    api_key: str | None = None,
+    api_version: str | None = None,
 ) -> Backend:
     """Create an OpenAI-SDK client configured for the chosen endpoint.
     
@@ -293,11 +295,11 @@ def create_backend(
     - AZURE_OPENAI_API_VERSION or OPENAI_API_VERSION
     """
     if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
+        resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not resolved_api_key:
             raise ProviderConfigError("Set OPENAI_API_KEY for the OpenAI provider.")
         base_url = endpoint or os.getenv("OPENAI_BASE_URL")
-        client_options: dict[str, Any] = {"api_key": api_key}
+        client_options: dict[str, Any] = {"api_key": resolved_api_key}
         if base_url:
             client_options["base_url"] = _with_v1(base_url)
         return Backend(
@@ -312,22 +314,29 @@ def create_backend(
         )
 
     if provider == "azure":
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        resolved_api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
         azure_endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
         deployment = model or os.getenv("AZURE_OPENAI_DEPLOYMENT")
-        api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv(
-            "OPENAI_API_VERSION"
+        resolved_api_version = (
+            api_version
+            or os.getenv("AZURE_OPENAI_API_VERSION")
+            or os.getenv("OPENAI_API_VERSION")
         )
-        logger.debug("[PROVIDERS] Azure config - endpoint=%s, deployment=%s, api_version=%s", azure_endpoint, deployment, api_version)
+        logger.debug(
+            "[PROVIDERS] Azure config - endpoint=%s, deployment=%s, api_version=%s",
+            azure_endpoint,
+            deployment,
+            resolved_api_version,
+        )
         missing = [
             name
             for name, value in (
-                ("AZURE_OPENAI_API_KEY", api_key),
+                ("AZURE_OPENAI_API_KEY", resolved_api_key),
                 ("AZURE_OPENAI_ENDPOINT", azure_endpoint),
                 ("--model or AZURE_OPENAI_DEPLOYMENT", deployment),
                 (
                     "AZURE_OPENAI_API_VERSION or OPENAI_API_VERSION",
-                    api_version,
+                    resolved_api_version,
                 ),
             )
             if not value
@@ -339,9 +348,9 @@ def create_backend(
         return Backend(
             provider="azure",
             client=AzureOpenAI(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 azure_endpoint=azure_endpoint,
-                api_version=api_version,
+                api_version=resolved_api_version,
             ),
             model=deployment,
             supports_stateful_responses=False,
@@ -350,11 +359,11 @@ def create_backend(
 
     if provider == "ollama":
         base_url = endpoint or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        api_key = os.getenv("OLLAMA_API_KEY", "ollama")
+        resolved_api_key = api_key or os.getenv("OLLAMA_API_KEY", "ollama")
         return Backend(
             provider="ollama",
-            client=OpenAI(api_key=api_key, base_url=_with_v1(base_url)),
-            model=model or os.getenv("OLLAMA_MODEL", "gemma4:26b"),
+            client=OpenAI(api_key=resolved_api_key, base_url=_with_v1(base_url)),
+            model=model or os.getenv("OLLAMA_MODEL", "qwen3:8b"),
             supports_stateful_responses=False,
             # Ollama supports tools but not these optional Responses controls.
             response_options={},

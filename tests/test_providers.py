@@ -37,6 +37,15 @@ def test_openai_backend(monkeypatch):
     assert backend.supports_stateful_responses
 
 
+def test_openai_backend_accepts_explicit_api_key(monkeypatch):
+    clients = _fake_openai(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    providers.create_backend("openai", api_key="browser-key")
+
+    assert clients == [{"api_key": "browser-key"}]
+
+
 def test_azure_backend_uses_dedicated_sdk_client(monkeypatch):
     clients = _fake_azure_openai(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
@@ -52,6 +61,33 @@ def test_azure_backend_uses_dedicated_sdk_client(monkeypatch):
         "api_key": "azure-key",
         "azure_endpoint": "https://cv.openai.azure.com",
         "api_version": "2025-04-01-preview",
+    }]
+
+
+def test_azure_backend_accepts_explicit_gui_configuration(monkeypatch):
+    clients = _fake_azure_openai(monkeypatch)
+    for name in (
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_DEPLOYMENT",
+        "AZURE_OPENAI_API_VERSION",
+        "OPENAI_API_VERSION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    backend = providers.create_backend(
+        "azure",
+        api_key="browser-key",
+        endpoint="https://example.openai.azure.com",
+        model="cv-deployment",
+        api_version="2026-01-01-preview",
+    )
+
+    assert backend.model == "cv-deployment"
+    assert clients == [{
+        "api_key": "browser-key",
+        "azure_endpoint": "https://example.openai.azure.com",
+        "api_version": "2026-01-01-preview",
     }]
 
 

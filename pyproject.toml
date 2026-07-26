@@ -14,8 +14,14 @@ dependencies = [
   "python-dotenv>=1.0,<2",
 ]
 
+[project.optional-dependencies]
+gui = [
+  "streamlit>=1.56,<2",
+]
+
 [project.scripts]
 pimpmycv = "pimpmycv.cli:main"
+pimpmycv-gui = "pimpmycv.gui:launch"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
