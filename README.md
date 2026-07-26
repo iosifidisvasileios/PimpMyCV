@@ -106,14 +106,12 @@ pimpmycv-gui
 ```
 
 The browser UI accepts the same CV ZIP, job description, provider, model, and
-LaTeX engine settings as the CLI. It returns download buttons for both
-`tailored_cv.pdf` and `tailored_cv.zip`. Credentials can come from `.env` as
-before, or can be entered into the password field for the current browser
-session. When Ollama is selected, the model dropdown offers `gemma4:26b` and
-`gemma4:e4b`.
-
-The GUI accepts the first compilable draft. Use the CLI when you want the
-interactive draft-feedback loop.
+LaTeX engine settings as the CLI. Each successful draft appears in an embedded
+PDF viewer. Accept it or enter feedback to request another revision; after
+acceptance, download both `tailored_cv.pdf` and `tailored_cv.zip`. Credentials
+can come from `.env` as before, or can be entered into the password field for
+the current browser session. When Ollama is selected, the model dropdown offers
+`gemma4:26b` and `gemma4:e4b`.
 
 The provider and model are read from `.env`. After each successful draft,
 review `build/draft_cv.pdf`, enter feedback to request another revision, or

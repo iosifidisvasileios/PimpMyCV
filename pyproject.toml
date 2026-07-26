@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-  "streamlit>=1.40,<2",
+  "streamlit>=1.56,<2",
 ]
 
 [project.scripts]
