@@ -354,7 +354,7 @@ def create_backend(
         return Backend(
             provider="ollama",
             client=OpenAI(api_key=api_key, base_url=_with_v1(base_url)),
-            model=model or os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+            model=model or os.getenv("OLLAMA_MODEL", "gemma4:26b"),
             supports_stateful_responses=False,
             # Ollama supports tools but not these optional Responses controls.
             response_options={},

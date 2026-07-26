@@ -53,6 +53,24 @@ you use:
 | Azure OpenAI | `PIMPMYCV_PROVIDER`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
 | Ollama | `PIMPMYCV_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_API_KEY`, `OLLAMA_MODEL` |
 
+## Ollama setup
+
+Default mode uses gemma4:26b via Ollama, make sure you have pre-downloaded the model. Also increase the context window for better results, ideally to 64K tokens.
+```aiignore
+sudo systemctl edit ollama
+
+[Service]
+Environment="OLLAMA_CONTEXT_LENGTH=65536"
+```
+
+
+```aiignore
+sudo systemctl restart ollama
+```
+
+```bash
+ollama pull gemma4:26b
+```
 Ollama must be running before using its provider:
 
 ```bash
@@ -70,13 +88,12 @@ If the ZIP contains multiple LaTeX documents, use `--main-tex` to select the
 main file.
 
 ## Run
-
-```bash
-pimpmycv \
-  --cv /path/to/cv.zip \
-  --job /path/to/job.txt \
-  --instructions /path/to/instructions.txt \
-  --output build
+To execute the system with default params run the following:
+```bash 
+pimpmycv --cv examples/sample_cv.zip \
+--job examples/job_description.txt \
+--instructions examples/instructions.txt \
+--output build
 ```
 
 The provider and model are read from `.env`. After each successful draft,
