@@ -84,6 +84,52 @@ build/tailored_cv.zip
 Use `--verbose` for progress messages, `--debug` for detailed logs and saved
 attempts, and `pimpmycv --help` for all options.
 
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Inputs
+        CV["LaTeX CV project ZIP"]
+        Job["Job description"]
+        Instructions["Optional instructions"]
+    end
+
+    subgraph PimpMyCV
+        CLI["CLI"]
+        Archive["ZIP extraction and packaging"]
+        Agent["Rewrite and reflection loop"]
+        Prompts["Prompt files"]
+        Compiler["LaTeX compiler"]
+    end
+
+    subgraph Providers
+        OpenAI["OpenAI"]
+        Azure["Azure OpenAI"]
+        Ollama["Ollama"]
+    end
+
+    subgraph Review_and_Output["Review and output"]
+        Draft["Compiled draft PDF"]
+        Feedback["User feedback"]
+        Final["Final PDF and project ZIP"]
+    end
+
+    CV --> Archive --> Agent
+    Job --> CLI
+    Instructions --> CLI
+    CLI --> Agent
+    Prompts --> Agent
+    Agent <--> OpenAI
+    Agent <--> Azure
+    Agent <--> Ollama
+    Agent --> Compiler
+    Compiler -->|Success| Draft
+    Compiler -->|Failure diagnostics| Agent
+    Draft -->|Revise| Feedback --> Agent
+    Draft -->|Accept| Final
+    Archive --> Final
+```
+
 ## Tests
 
 ```bash
