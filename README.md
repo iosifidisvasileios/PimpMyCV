@@ -5,6 +5,8 @@
 ![Providers: OpenAI, Azure OpenAI, Ollama](https://img.shields.io/badge/providers-OpenAI%20%7C%20Azure%20OpenAI%20%7C%20Ollama-412991)
 ![Output: LaTeX and PDF](https://img.shields.io/badge/output-LaTeX%20%2B%20PDF-008080)
 
+![A robot tailor edits a LaTeX CV while a rubber duck reviews the generated PDF](assets/pimpmycv-tailor.png)
+
 PimpMyCV is a small Python CLI that tailors a LaTeX CV to a job description,
 compiles it, and lets you request revisions before accepting the final PDF.
 It supports OpenAI, Azure OpenAI, and local Ollama models.
