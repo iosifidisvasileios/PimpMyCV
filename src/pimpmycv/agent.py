@@ -49,6 +49,26 @@ def preserve_preamble(original: str, candidate: str) -> str:
 TOOLS = [
     {
         "type": "function",
+        "name": "rewrite_instructions",
+        "description": (
+            "Rewrite and clarify the user's instructions to make them more specific "
+            "and actionable for CV tailoring. Returns the rewritten instructions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rewritten_instructions": {
+                    "type": "string",
+                    "description": "The rewritten, clarified user instructions.",
+                }
+            },
+            "required": ["rewritten_instructions"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "save_and_compile_cv",
         "description": (
             "Replace the tailored .tex candidate and compile it. Returns success, "
@@ -88,6 +108,72 @@ def _text_candidate(response_text: str) -> str | None:
     return response_text[start : end + len(document_end)]
 
 
+def rewrite_user_instructions(
+    backend: Any,
+    user_instructions: str,
+) -> str:
+    """Rewrite user instructions to make them clearer and more actionable."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[AGENT] rewrite_user_instructions() called - instructions length=%d chars", len(user_instructions))
+    
+    if not user_instructions or not user_instructions.strip():
+        logger.debug("[AGENT] No user instructions to rewrite")
+        return user_instructions
+    
+    system_prompt = load_prompt("rewrite_instructions.md")
+    task = render_prompt(
+        "rewrite_instructions.md",
+        user_instructions=user_instructions.strip(),
+    )
+    
+    logger.info("Rewriting user instructions with model %s.", backend.model)
+    response = backend.call_model(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": task}],
+        tools=[{
+            "type": "function",
+            "name": "rewrite_instructions",
+            "description": "Rewrite and clarify the user's instructions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rewritten_instructions": {
+                        "type": "string",
+                        "description": "The rewritten, clarified user instructions.",
+                    }
+                },
+                "required": ["rewritten_instructions"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        }],
+    )
+    
+    calls = backend.extract_tool_calls(response)
+    call = calls[0] if calls else None
+    response_text = backend.extract_text(response)
+    
+    if call is None:
+        logger.warning("Rewriter did not call the tool, using original instructions")
+        return user_instructions
+    
+    tool_name, tool_args_str, _ = backend.get_tool_call_info(call)
+    if tool_name != "rewrite_instructions":
+        logger.warning("Rewriter called unknown tool: %s", tool_name)
+        return user_instructions
+    
+    try:
+        arguments = json.loads(tool_args_str)
+        rewritten = arguments["rewritten_instructions"]
+        logger.debug("[AGENT] Instructions rewritten - original=%d chars, rewritten=%d chars", len(user_instructions), len(rewritten))
+        logger.debug("[AGENT] Instructions rewritten - %s",rewritten.strip())
+        logger.info("User instructions rewritten successfully.")
+        return rewritten.strip()
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.warning("Failed to parse rewriter response: %s", exc)
+        return user_instructions
+
+
 def tailor_cv(
     backend: Any,
     *,
@@ -109,6 +195,9 @@ def tailor_cv(
         raise ValueError("max_attempts must be at least 1")
     if max_feedback_rounds < 0:
         raise ValueError("max_feedback_rounds cannot be negative")
+
+    # Rewrite user instructions to make them clearer and more actionable
+    user_instructions = rewrite_user_instructions(backend, user_instructions)
 
     logger.debug("[AGENT] Loading system prompt and rendering task prompt")
     system_prompt = load_prompt("system.md")
@@ -250,6 +339,9 @@ def tailor_cv(
                 feedback_rounds += 1
                 logger.info("Applying user feedback round %d.", feedback_rounds)
                 logger.debug("[AGENT] User feedback length: %d chars", len(user_feedback))
+                # Rewrite user feedback to make it clearer and more actionable
+                user_feedback = rewrite_user_instructions(backend, user_feedback)
+                logger.debug("[AGENT] Rewritten feedback length: %d chars", len(user_feedback))
                 continuation = []
                 if call is not None:
                     continuation.extend(backend.format_tool_output(

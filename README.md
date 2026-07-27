@@ -146,6 +146,7 @@ graph TB
         CLI["CLI"]
         GUI["Streamlit GUI"]
         Archive["ZIP extraction and packaging"]
+        Rephraser["Instruction rephraser"]
         Agent["Rewrite and reflection loop"]
         Prompts["Prompt files"]
         Compiler["LaTeX compiler"]
@@ -168,17 +169,23 @@ graph TB
     Instructions --> CLI
     Job --> GUI
     Instructions --> GUI
-    CLI --> Agent
+    CLI --> Rephraser
+    GUI --> Rephraser
+    Rephraser --> Agent
     GUI --> Archive
     GUI --> Agent
     Prompts --> Agent
+    Prompts --> Rephraser
     Agent <--> OpenAI
     Agent <--> Azure
     Agent <--> Ollama
+    Rephraser <--> OpenAI
+    Rephraser <--> Azure
+    Rephraser <--> Ollama
     Agent --> Compiler
     Compiler -->|Success| Draft
     Compiler -->|Failure diagnostics| Agent
-    Draft -->|Revise| Feedback --> Agent
+    Draft -->|Revise| Feedback --> Rephraser
     Draft -->|Accept| Final
     Archive --> Final
 ```
