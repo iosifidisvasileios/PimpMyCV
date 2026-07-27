@@ -144,10 +144,14 @@ graph TB
 
     subgraph PimpMyCV["PimpMyCV"]
         CLI["CLI"]
-        GUI["Streamlit GUI"]
         Archive["ZIP extraction and packaging"]
         Agent["Rewrite and reflection loop"]
-        Prompts["Prompt files"]
+    end
+
+    subgraph Prompts["Prompts"]
+        P1["System prompt"]
+        P2["Task prompt"]
+        P3["Rewrite instructions"]
     end
 
     subgraph Rephraser["Rephraser"]
@@ -170,16 +174,11 @@ graph TB
         Final["Final PDF and project ZIP"]
     end
 
-    CV --> Archive --> Agent
-    Job --> CLI
-    Instructions --> CLI
-    Job --> GUI
-    Instructions --> GUI
+    Inputs --> CLI
     CLI --> Rephraser
-    GUI --> Rephraser
     Rephraser --> Agent
-    GUI --> Archive
-    GUI --> Agent
+    CLI --> Archive
+    Archive --> Agent
     Prompts --> Agent
     Prompts --> Rephraser
     Agent <--> Providers
