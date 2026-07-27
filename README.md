@@ -136,23 +136,29 @@ the current browser session. When Ollama is selected, the model dropdown offers
 
 ```mermaid
 graph TB
-    subgraph Inputs
+    subgraph Inputs["Inputs"]
         CV["LaTeX CV project ZIP"]
         Job["Job description"]
         Instructions["Optional instructions"]
     end
 
-    subgraph PimpMyCV
+    subgraph PimpMyCV["PimpMyCV"]
         CLI["CLI"]
         GUI["Streamlit GUI"]
         Archive["ZIP extraction and packaging"]
-        Rephraser["Instruction rephraser"]
         Agent["Rewrite and reflection loop"]
         Prompts["Prompt files"]
-        Compiler["LaTeX compiler"]
     end
 
-    subgraph Providers
+    subgraph Rephraser["Rephraser"]
+        R1["Instruction rephraser"]
+    end
+
+    subgraph Compiler["LaTeX Compiler"]
+        C1["Compilation engine"]
+    end
+
+    subgraph Providers["LLM Providers"]
         OpenAI["OpenAI"]
         Azure["Azure OpenAI"]
         Ollama["Ollama"]
@@ -176,12 +182,8 @@ graph TB
     GUI --> Agent
     Prompts --> Agent
     Prompts --> Rephraser
-    Agent <--> OpenAI
-    Agent <--> Azure
-    Agent <--> Ollama
-    Rephraser <--> OpenAI
-    Rephraser <--> Azure
-    Rephraser <--> Ollama
+    Agent <--> Providers
+    Rephraser <--> Providers
     Agent --> Compiler
     Compiler -->|Success| Draft
     Compiler -->|Failure diagnostics| Agent
