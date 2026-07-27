@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 from queue import Empty, Queue
@@ -9,6 +10,8 @@ import sys
 import tempfile
 from threading import Event, Thread
 from typing import Any, Callable
+import urllib.request
+import urllib.error
 
 from pimpmycv.agent import tailor_cv
 from pimpmycv.archive import extract_cv_archive, write_tailored_archive
@@ -19,7 +22,18 @@ from pimpmycv.providers import (
     create_backend,
 )
 
-OLLAMA_MODELS = ("gemma4:26b", "gemma4:e4b")
+
+def get_ollama_models() -> tuple[str, ...]:
+    """Fetch available models from Ollama API."""
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            models = sorted([model["name"] for model in data.get("models", [])])
+            return tuple(models) if models else ("qwen3:8b",)
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError):
+        # Fallback to default models if Ollama is not available
+        return ("qwen3:8b",)
 
 
 @dataclass(frozen=True)
@@ -261,15 +275,16 @@ def render_app() -> None:
         st.header("Model & build")
         provider = st.selectbox("Provider", PROVIDERS)
         if provider == "ollama":
-            configured_model = os.getenv("OLLAMA_MODEL", OLLAMA_MODELS[0])
+            ollama_models = get_ollama_models()
+            configured_model = os.getenv("OLLAMA_MODEL", ollama_models[0])
             model_index = (
-                OLLAMA_MODELS.index(configured_model)
-                if configured_model in OLLAMA_MODELS
+                ollama_models.index(configured_model)
+                if configured_model in ollama_models
                 else 0
             )
             model = st.selectbox(
                 "Model",
-                OLLAMA_MODELS,
+                ollama_models,
                 index=model_index,
             )
         else:
