@@ -6,7 +6,9 @@ import json
 import logging
 from pathlib import Path
 from string import Template
-from typing import Any, Callable
+from typing import Any, Callable, TypedDict
+
+from langgraph.graph import StateGraph, END
 
 from .compiler import CompileResult, compile_latex
 
@@ -122,6 +124,395 @@ def rewrite_user_instructions(
     return rewritten
 
 
+# LangGraph State Schema
+
+class AgentState(TypedDict):
+    """State for the CV tailoring agent."""
+    # Input configuration
+    cv_tex: str
+    job_description: str
+    user_instructions: str
+    output_tex: Path
+    source_dir: Path
+    engine: str
+    max_attempts: int
+    max_feedback_rounds: int
+    debug_dir: Path | None
+    
+    # Conversation state - using simple list without add_messages for custom handling
+    messages: list[dict[str, Any]]
+    system_prompt: str
+    
+    # Model outputs
+    latex_candidate: str | None
+    summary: str | None
+    
+    # Compilation state
+    compile_result: CompileResult | None
+    
+    # Counters
+    failed_attempts: int
+    feedback_rounds: int
+    draft_number: int
+    response_number: int
+    candidate_number: int
+    
+    # Backend reference (not serialized)
+    backend: Any
+    feedback_callback: Callable[[CompileResult, str, int], str | None] | None
+    
+    # Response tracking for stateful APIs
+    last_response: Any
+    last_response_id: str | None
+
+
+# LangGraph Nodes
+
+def generate_candidate(state: AgentState) -> dict:
+    """Call the LLM to generate a LaTeX CV candidate."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[LANGGRAPH] generate_candidate node called")
+    
+    backend = state["backend"]
+    messages = state["messages"]
+    
+    # Determine if this is the first call or a continuation
+    if state["response_number"] == 0:
+        logger.info("Requesting initial CV rewrite from model %s.", backend.model)
+    else:
+        logger.info("Requesting another model response.")
+    
+    logger.debug("[LANGGRAPH] Calling model API with %d messages", len(messages))
+    
+    if backend.supports_stateful_responses and state["last_response_id"]:
+        response = backend.call_model(
+            system_prompt=state["system_prompt"],
+            messages=messages,
+            tools=TOOLS,
+            previous_response_id=state["last_response_id"],
+        )
+    else:
+        response = backend.call_model(
+            system_prompt=state["system_prompt"],
+            messages=messages,
+            tools=TOOLS,
+        )
+    
+    response_id = backend.get_response_id(response)
+    logger.debug("[LANGGRAPH] Response received - response_id=%s", response_id)
+    
+    # Extract reasoning and save if debug enabled
+    reasoning = backend.extract_reasoning(response)
+    if reasoning and state["debug_dir"]:
+        reasoning_path = state["debug_dir"] / f"reasoning-{state['response_number'] + 1:02d}.txt"
+        reasoning_path.write_text(reasoning, encoding="utf-8")
+        logger.debug("[LANGGRAPH] Saved reasoning to: %s", reasoning_path)
+    
+    # Save response text if debug enabled
+    response_text = backend.extract_text(response)
+    if response_text and state["debug_dir"]:
+        response_path = state["debug_dir"] / f"response-{state['response_number'] + 1:02d}.txt"
+        response_path.write_text(response_text, encoding="utf-8")
+        logger.debug("[LANGGRAPH] Saved model response: %s", response_path)
+    
+    # Extract tool call or text candidate
+    calls = backend.extract_tool_calls(response)
+    call = calls[0] if calls else None
+    
+    latex = None
+    summary = None
+    
+    if call is None:
+        logger.debug("[LANGGRAPH] No tool call detected, attempting to extract LaTeX from text")
+        latex = _text_candidate(response_text)
+        summary = "The model returned a LaTeX draft without a change summary."
+        if latex is None:
+            logger.warning("Response contained neither a function call nor complete LaTeX.")
+        else:
+            logger.info("Response contained a direct LaTeX candidate.")
+    else:
+        tool_name, tool_args_str, call_id = backend.get_tool_call_info(call)
+        logger.info("Response called %s.", tool_name)
+        
+        if tool_name != "save_and_compile_cv":
+            raise RuntimeError(f"The model called an unknown tool: {tool_name}")
+        
+        try:
+            arguments = json.loads(tool_args_str)
+            latex = arguments["latex"]
+            summary = arguments["summary"]
+            logger.debug("Tool arguments parsed - latex=%d chars, summary=%d chars", len(latex), len(summary))
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise RuntimeError("The model returned invalid tool arguments." + str(tool_args_str)) from exc
+    
+    return {
+        "latex_candidate": latex,
+        "summary": summary,
+        "last_response": response,
+        "last_response_id": response_id,
+        "response_number": state["response_number"] + 1,
+    }
+
+
+def compile_candidate(state: AgentState) -> dict:
+    """Compile the LaTeX candidate and return the result."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[LANGGRAPH] compile_candidate node called")
+    
+    latex = state["latex_candidate"]
+    
+    if latex is None:
+        logger.warning("No candidate produced, skipping compilation")
+        return {
+            "compile_result": None,
+            "failed_attempts": state["failed_attempts"] + 1,
+        }
+    
+    if not isinstance(latex, str) or not latex.strip():
+        raise RuntimeError("The model returned an empty LaTeX document.")
+    
+    summary = state["summary"]
+    if not isinstance(summary, str) or not summary.strip():
+        raise RuntimeError("The model returned an empty rewrite summary.")
+    
+    candidate_number = state["candidate_number"] + 1
+    logger.debug("[LANGGRAPH] Processing candidate %d", candidate_number)
+    
+    # Preserve preamble
+    protected_latex = preserve_preamble(state["cv_tex"], latex)
+    if protected_latex != latex:
+        logger.debug("Restored the original LaTeX preamble.")
+    
+    latex = protected_latex
+    output_tex = state["output_tex"]
+    output_tex.parent.mkdir(parents=True, exist_ok=True)
+    output_tex.write_text(latex, encoding="utf-8")
+    
+    # Save candidate if debug enabled
+    if state["debug_dir"]:
+        candidate_path = state["debug_dir"] / f"candidate-{candidate_number:02d}.tex"
+        candidate_path.write_text(latex, encoding="utf-8")
+        logger.debug("Saved candidate: %s", candidate_path)
+    
+    # Compile
+    logger.info("Compiling candidate %d with %s.", candidate_number, state["engine"])
+    result = compile_latex(
+        output_tex,
+        source_dir=state["source_dir"],
+        engine=state["engine"],
+    )
+    
+    # Save compiler log if debug enabled
+    if state["debug_dir"]:
+        compiler_log = state["debug_dir"] / f"candidate-{candidate_number:02d}.log"
+        compiler_log.write_text(result.log, encoding="utf-8")
+        logger.debug("Saved compiler log: %s", compiler_log)
+    
+    return {
+        "compile_result": result,
+        "candidate_number": candidate_number,
+    }
+
+
+def handle_compilation_success(state: AgentState) -> dict:
+    """Handle successful compilation and request user feedback if needed."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[LANGGRAPH] handle_compilation_success node called")
+    
+    result = state["compile_result"]
+    summary = state["summary"]
+    draft_number = state["draft_number"] + 1
+    
+    logger.info("Candidate %d produced a PDF.", state["candidate_number"])
+    
+    # Check if we should request feedback
+    if state["feedback_callback"] is None or state["feedback_rounds"] >= state["max_feedback_rounds"]:
+        logger.debug("No feedback callback or max rounds reached, accepting draft")
+        return {
+            "draft_number": draft_number,
+            "failed_attempts": 0,
+        }
+    
+    # Request user feedback
+    logger.debug("Calling feedback_callback for draft %d", draft_number)
+    user_feedback = state["feedback_callback"](
+        result,
+        summary.strip(),
+        draft_number,
+    )
+    
+    if not user_feedback or not user_feedback.strip():
+        logger.debug("No user feedback provided, accepting draft")
+        return {
+            "draft_number": draft_number,
+            "failed_attempts": 0,
+        }
+    
+    feedback_rounds = state["feedback_rounds"] + 1
+    logger.info("Applying user feedback round %d.", feedback_rounds)
+    
+    # Rewrite feedback for clarity
+    rewritten_feedback = rewrite_user_instructions(state["backend"], user_feedback)
+    
+    # Build continuation messages
+    continuation = state["messages"].copy()
+    
+    # Add tool output if tool was used
+    calls = state["backend"].extract_tool_calls(state["last_response"])
+    call = calls[0] if calls else None
+    if call is not None:
+        continuation.extend(state["backend"].format_tool_output(
+            call,
+            "",
+            True,
+            {
+                "compiler": result.engine,
+                "pdf_path": str(result.pdf_path),
+            }
+        ))
+    
+    # Add feedback message
+    continuation.append({
+        "role": "user",
+        "content": render_prompt(
+            "feedback.md",
+            user_feedback=rewritten_feedback.strip(),
+        ),
+    })
+    
+    return {
+        "messages": continuation,
+        "draft_number": draft_number,
+        "feedback_rounds": feedback_rounds,
+        "failed_attempts": 0,
+    }
+
+
+def handle_compilation_failure(state: AgentState) -> dict:
+    """Handle compilation failure and return diagnostics to the model."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[LANGGRAPH] handle_compilation_failure node called")
+    
+    result = state["compile_result"]
+    failed_attempts = state["failed_attempts"] + 1
+    
+    logger.warning(
+        "Candidate %d failed to compile (failed attempt %d/%d).",
+        state["candidate_number"],
+        failed_attempts,
+        state["max_attempts"],
+    )
+    logger.debug("Compilation log (last 500 chars): %s", result.log[-500:])
+    
+    # Build continuation messages
+    continuation = state["messages"].copy()
+    calls = state["backend"].extract_tool_calls(state["last_response"])
+    call = calls[0] if calls else None
+    
+    if call is not None:
+        continuation.extend(state["backend"].format_tool_output(
+            call,
+            "",
+            False,
+            {
+                "attempt": failed_attempts,
+                "compiler": result.engine,
+                "diagnostics": result.log[-8000:],
+            }
+        ))
+        logger.debug("Sending tool output with failure diagnostics")
+    else:
+        continuation.append({
+            "role": "user",
+            "content": render_prompt(
+                "compile-failure.md",
+                compiler=result.engine,
+                diagnostics=result.log[-8000:],
+            ),
+        })
+        logger.debug("Sending compile-failure prompt")
+    
+    return {
+        "messages": continuation,
+        "failed_attempts": failed_attempts,
+    }
+
+
+def handle_no_candidate(state: AgentState) -> dict:
+    """Handle case where no LaTeX candidate was produced."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[LANGGRAPH] handle_no_candidate node called")
+    
+    failed_attempts = state["failed_attempts"] + 1
+    logger.warning(
+        "No candidate produced (failed attempt %d/%d).",
+        failed_attempts,
+        state["max_attempts"],
+    )
+    
+    continuation = state["messages"].copy()
+    if isinstance(load_prompt("tool-required.md"), str):
+        continuation.append({"role": "user", "content": load_prompt("tool-required.md")})
+    else:
+        continuation.extend(load_prompt("tool-required.md"))
+    
+    return {
+        "messages": continuation,
+        "failed_attempts": failed_attempts,
+    }
+
+
+# LangGraph Conditional Edges
+
+def should_compile(state: AgentState) -> str:
+    """Determine if we have a valid candidate to compile."""
+    if state["latex_candidate"] is None:
+        return "no_candidate"
+    return "compile"
+
+
+def check_compilation_result(state: AgentState) -> str:
+    """Route based on compilation success."""
+    if state["compile_result"] is None:
+        return "no_candidate"
+    
+    if state["compile_result"].success:
+        return "success"
+    return "failure"
+
+
+def should_continue(state: AgentState) -> str:
+    """Check if we should continue or terminate."""
+    # Check attempt limits first
+    if state["failed_attempts"] >= state["max_attempts"]:
+        logger.warning("Max attempts (%d) reached, aborting", state["max_attempts"])
+        return "error"
+    
+    # If we have a successful compilation
+    if state["compile_result"] and state["compile_result"].success:
+        # If no feedback callback or max rounds reached, we're done
+        if state["feedback_callback"] is None or state["feedback_rounds"] >= state["max_feedback_rounds"]:
+            return "end"
+        
+        # If we just incremented draft_number but didn't increment feedback_rounds,
+        # it means the user provided no feedback, so we're done
+        # This is handled by checking if the current node added feedback messages
+        # Since we can't easily detect that from state alone, we use a simpler heuristic:
+        # If we're in handle_success and feedback_rounds didn't increase, we should end
+        # But the node already handles this by not adding messages when feedback is empty
+        # So we just check if new messages were added
+        # For simplicity, we'll use the fact that if feedback_rounds == 0 and we have a success,
+        # and we're not in the first iteration, we should end
+        if state["feedback_rounds"] == 0 and state["draft_number"] > 0:
+            # This means we got a success but no feedback was ever requested/added
+            # We need to check if this is the first draft or subsequent
+            # If it's the first draft and no feedback callback, we end
+            if state["feedback_callback"] is None:
+                return "end"
+    
+    return "continue"
+
+
 def tailor_cv(
     backend: Any,
     *,
@@ -136,18 +527,24 @@ def tailor_cv(
     feedback_callback: Callable[[CompileResult, str, int], str | None] | None = None,
     debug_dir: Path | None = None,
 ) -> CompileResult:
-    """Let the model edit, compile, inspect, and retry a LaTeX CV."""
-    logger.debug("[AGENT] tailor_cv() called - model=%s, engine=%s, max_attempts=%d, max_feedback_rounds=%d", backend.model, engine, max_attempts, max_feedback_rounds)
-    logger.debug("[AGENT] CV tex length: %d chars, job description length: %d chars, instructions length: %d chars", len(cv_tex), len(job_description), len(user_instructions))
+    """Let the model edit, compile, inspect, and retry a LaTeX CV using LangGraph."""
+    logger = logging.getLogger(__name__)
+    logger.debug("[AGENT] tailor_cv() called with LangGraph - model=%s, engine=%s", backend.model, engine)
+    
     if max_attempts < 1:
         raise ValueError("max_attempts must be at least 1")
     if max_feedback_rounds < 0:
         raise ValueError("max_feedback_rounds cannot be negative")
-
-    # Rewrite user instructions to make them clearer and more actionable
+    
+    # Rewrite user instructions
     user_instructions = rewrite_user_instructions(backend, user_instructions)
-
-    logger.debug("[AGENT] Loading system prompt and rendering task prompt")
+    
+    # Create debug directory if needed
+    if debug_dir is not None:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug("Debug directory created: %s", debug_dir)
+    
+    # Load prompts
     system_prompt = load_prompt("system.md")
     task = render_prompt(
         "task.md",
@@ -155,227 +552,121 @@ def tailor_cv(
         job_description=job_description,
         user_instructions=user_instructions.strip(),
     )
-    logger.debug("[AGENT] Response options: %s", backend.response_options)
-    history: list[dict[str, Any]] = [{"role": "user", "content": task}]
-    if debug_dir is not None:
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug("[AGENT] Debug directory created: %s", debug_dir)
-    logger.info("Requesting initial CV rewrite from model %s.", backend.model)
-    logger.debug("[AGENT] Calling model API with model=%s", backend.model)
-
-    response = backend.call_model(
-        system_prompt=system_prompt,
-        messages=history,
-        tools=TOOLS,
+    
+    # Build the LangGraph
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("generate_candidate", generate_candidate)
+    workflow.add_node("compile_candidate", compile_candidate)
+    workflow.add_node("handle_success", handle_compilation_success)
+    workflow.add_node("handle_failure", handle_compilation_failure)
+    workflow.add_node("handle_no_candidate", handle_no_candidate)
+    
+    # Set entry point
+    workflow.set_entry_point("generate_candidate")
+    
+    # Add conditional edges
+    workflow.add_conditional_edges(
+        "generate_candidate",
+        should_compile,
+        {
+            "compile": "compile_candidate",
+            "no_candidate": "handle_no_candidate",
+        }
     )
-
-    response_id = backend.get_response_id(response)
-    logger.debug("[AGENT] Initial response received - response_id=%s", response_id)
-
-    last_result: CompileResult | None = None
-    failed_attempts = 0
-    feedback_rounds = 0
-    draft_number = 0
-    response_number = 1
-    candidate_number = 0
-    while True:
-        logger.debug("[AGENT] --- Processing response %d ---", response_number)
-        calls = backend.extract_tool_calls(response)
-        call = calls[0] if calls else None
-        response_text = backend.extract_text(response)
-        # Handle both Responses API (output) and Chat Completions API (choices) formats
-        if hasattr(response, "output"):
-            item_types = [getattr(item, "type", "unknown") for item in response.output]
-        else:
-            item_types = ["chat_completion"]
-        logger.debug("[AGENT] Response %d item types: %s", response_number, item_types)
-        logger.debug("[AGENT] Response %d has %d tool calls", response_number, len(calls))
-        
-        # Extract and log reasoning if available
-        reasoning = backend.extract_reasoning(response)
-        if reasoning:
-            logger.debug("[AGENT] Response %d contains reasoning (%d chars)", response_number, len(reasoning))
-            logger.debug("[AGENT] [REASONING] %s", reasoning)
-            if debug_dir is not None:
-                reasoning_path = debug_dir / f"reasoning-{response_number:02d}.txt"
-                reasoning_path.write_text(reasoning, encoding="utf-8")
-                logger.debug("[AGENT] Saved reasoning to: %s", reasoning_path)
-        
-        if debug_dir is not None and response_text:
-            response_path = debug_dir / f"response-{response_number:02d}.txt"
-            response_path.write_text(response_text, encoding="utf-8")
-            logger.debug("[AGENT] Saved model response: %s", response_path)
-        if call is None:
-            logger.debug("[AGENT] No tool call detected, attempting to extract LaTeX from text")
-            latex = _text_candidate(response_text)
-            summary = "The model returned a LaTeX draft without a change summary."
-            if latex is None:
-                logger.warning(
-                    "Response %d contained neither a function call nor complete LaTeX.",
-                    response_number,
-                )
-            else:
-                logger.info("Response %d contained a direct LaTeX candidate.", response_number)
-                logger.debug("[AGENT] Extracted LaTeX length: %d chars", len(latex))
-        else:
-            tool_name, tool_args_str, call_id = backend.get_tool_call_info(call)
-            if call_id:
-                logger.debug("[AGENT] Tool call ID: %s", call_id)
-            
-            logger.info("Response %d called %s.", response_number, tool_name)
-            
-            if tool_name != "save_and_compile_cv":
-                raise RuntimeError(f"The model called an unknown tool: {tool_name}")
-            try:
-                arguments = json.loads(tool_args_str)
-                latex = arguments["latex"]
-                summary = arguments["summary"]
-                logger.debug("[AGENT] Tool arguments parsed - latex=%d chars, summary=%d chars", len(latex), len(summary))
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                raise RuntimeError("The model returned invalid tool arguments." + str(tool_args_str)) from exc
-
-        if latex is None:
-            failed_attempts += 1
-            logger.warning(
-                "No candidate produced (failed attempt %d/%d).",
-                failed_attempts,
-                max_attempts,
-            )
-            continuation: str | list[dict[str, Any]] = load_prompt("tool-required.md")
-            logger.debug("[AGENT] Using tool-required prompt for continuation")
-        else:
-            if not isinstance(latex, str) or not latex.strip():
-                raise RuntimeError("The model returned an empty LaTeX document.")
-            if not isinstance(summary, str) or not summary.strip():
-                raise RuntimeError("The model returned an empty rewrite summary.")
-
-            candidate_number += 1
-            logger.debug("[AGENT] Processing candidate %d", candidate_number)
-            protected_latex = preserve_preamble(cv_tex, latex)
-            if protected_latex != latex:
-                logger.debug("Restored the original LaTeX preamble.")
-            latex = protected_latex
-            output_tex.parent.mkdir(parents=True, exist_ok=True)
-            output_tex.write_text(latex, encoding="utf-8")
-            logger.debug("[AGENT] Candidate written to: %s", output_tex)
-            if debug_dir is not None:
-                candidate_path = debug_dir / f"candidate-{candidate_number:02d}.tex"
-                candidate_path.write_text(latex, encoding="utf-8")
-                logger.debug("Saved candidate: %s", candidate_path)
-            logger.info("Compiling candidate %d with %s.", candidate_number, engine)
-            logger.debug("[AGENT] Calling compile_latex() - tex_path=%s, source_dir=%s", output_tex, source_dir)
-            last_result = compile_latex(
-                output_tex,
-                source_dir=source_dir,
-                engine=engine,
-            )
-            logger.debug("[AGENT] Compilation result - success=%s, engine=%s, pdf_path=%s", last_result.success, last_result.engine, last_result.pdf_path)
-            if debug_dir is not None:
-                compiler_log = debug_dir / f"candidate-{candidate_number:02d}.log"
-                compiler_log.write_text(last_result.log, encoding="utf-8")
-                logger.debug("Saved compiler log: %s", compiler_log)
-            if last_result.success:
-                logger.info("Candidate %d produced a PDF.", candidate_number)
-                failed_attempts = 0
-                draft_number += 1
-                logger.debug("[AGENT] Draft number incremented to %d", draft_number)
-                if feedback_callback is None or feedback_rounds >= max_feedback_rounds:
-                    logger.debug("[AGENT] No feedback callback or max rounds reached, returning result")
-                    return last_result
-                logger.debug("[AGENT] Calling feedback_callback for draft %d", draft_number)
-                user_feedback = feedback_callback(last_result, summary.strip(), draft_number)
-                if not user_feedback or not user_feedback.strip():
-                    logger.debug("[AGENT] No user feedback provided, accepting draft")
-                    return last_result
-                feedback_rounds += 1
-                logger.info("Applying user feedback round %d.", feedback_rounds)
-                logger.debug("[AGENT] User feedback length: %d chars", len(user_feedback))
-                # Rewrite user feedback to make it clearer and more actionable
-                user_feedback = rewrite_user_instructions(backend, user_feedback)
-                logger.debug("[AGENT] Rewritten feedback length: %d chars", len(user_feedback))
-                continuation = []
-                if call is not None:
-                    continuation.extend(backend.format_tool_output(
-                        call,
-                        "",
-                        True,
-                        {
-                            "compiler": last_result.engine,
-                            "pdf_path": str(last_result.pdf_path),
-                        }
-                    ))
-                continuation.append(
-                    {
-                        "role": "user",
-                        "content": render_prompt(
-                            "feedback.md",
-                            user_feedback=user_feedback.strip(),
-                        ),
-                    }
-                )
-            else:
-                failed_attempts += 1
-                logger.warning(
-                    "Candidate %d failed to compile (failed attempt %d/%d).",
-                    candidate_number,
-                    failed_attempts,
-                    max_attempts,
-                )
-                logger.debug("[AGENT] Compilation log (last 500 chars): %s", last_result.log[-500:])
-                if call is not None:
-                    continuation = backend.format_tool_output(
-                        call,
-                        "",
-                        False,
-                        {
-                            "attempt": failed_attempts,
-                            "compiler": last_result.engine,
-                            "diagnostics": last_result.log[-8000:],
-                        }
-                    )
-                    logger.debug("[AGENT] Sending tool output with failure diagnostics")
-                else:
-                    continuation = [{
-                        "role": "user",
-                        "content": render_prompt(
-                            "compile-failure.md",
-                            compiler=last_result.engine,
-                            diagnostics=last_result.log[-8000:],
-                        ),
-                    }]
-                    logger.debug("[AGENT] Sending compile-failure prompt")
-
-        if failed_attempts >= max_attempts:
-            logger.warning("[AGENT] Max attempts (%d) reached, aborting", max_attempts)
-            break
-
-        logger.info("Requesting another model response.")
-        logger.debug("[AGENT] Calling model API for response %d", response_number + 1)
-        
-        if backend.supports_stateful_responses:
-            response = backend.call_model(
-                system_prompt=system_prompt,
-                messages=continuation,
-                tools=TOOLS,
-                previous_response_id=backend.get_response_id(response),
-            )
-        else:
-            logger.debug("[AGENT] Using stateless API, serialising history")
-            history.extend(backend.serialize_for_continuation(response))
-            if isinstance(continuation, str):
-                history.append({"role": "user", "content": continuation})
-            else:
-                history.extend(continuation)
-            response = backend.call_model(
-                system_prompt=system_prompt,
-                messages=history,
-                tools=TOOLS,
-            )
-        response_id = backend.get_response_id(response)
-        logger.debug("[AGENT] Response %d received - response_id=%s", response_number + 1, response_id)
-        response_number += 1
-
-    details = last_result.log[-2000:] if last_result else "The model never produced a candidate."
+    
+    workflow.add_conditional_edges(
+        "compile_candidate",
+        check_compilation_result,
+        {
+            "success": "handle_success",
+            "failure": "handle_failure",
+            "no_candidate": "handle_no_candidate",
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "handle_success",
+        should_continue,
+        {
+            "continue": "generate_candidate",
+            "end": END,
+            "error": END,
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "handle_failure",
+        should_continue,
+        {
+            "continue": "generate_candidate",
+            "error": END,
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "handle_no_candidate",
+        should_continue,
+        {
+            "continue": "generate_candidate",
+            "error": END,
+        }
+    )
+    
+    # Compile the graph
+    app = workflow.compile()
+    
+    # Initialize state
+    initial_state: AgentState = {
+        "cv_tex": cv_tex,
+        "job_description": job_description,
+        "user_instructions": user_instructions,
+        "output_tex": output_tex,
+        "source_dir": source_dir,
+        "engine": engine,
+        "max_attempts": max_attempts,
+        "max_feedback_rounds": max_feedback_rounds,
+        "debug_dir": debug_dir,
+        "messages": [{"role": "user", "content": task}],
+        "system_prompt": system_prompt,
+        "latex_candidate": None,
+        "summary": None,
+        "compile_result": None,
+        "failed_attempts": 0,
+        "feedback_rounds": 0,
+        "draft_number": 0,
+        "response_number": 0,
+        "candidate_number": 0,
+        "backend": backend,
+        "feedback_callback": feedback_callback,
+        "last_response": None,
+        "last_response_id": None,
+    }
+    
+    # Run the graph
+    logger.debug("[LANGGRAPH] Starting graph execution")
+    final_state = None
+    for event in app.stream(initial_state):
+        for node_name, node_output in event.items():
+            logger.debug("[LANGGRAPH] Node %s completed", node_name)
+            final_state = node_output
+    
+    # Check result
+    if final_state and final_state.get("compile_result"):
+        result = final_state["compile_result"]
+        if result.success:
+            return result
+    
+    # Error case
+    details = ""
+    if final_state and final_state.get("compile_result"):
+        details = final_state["compile_result"].log[-2000:]
+    elif final_state:
+        details = f"Failed attempts: {final_state.get('failed_attempts', 0)}"
+    else:
+        details = "The model never produced a candidate."
+    
     raise RuntimeError(
         f"Could not produce a compilable CV after {max_attempts} attempts.\n{details}"
     )

@@ -135,6 +135,8 @@ the current browser session. When Ollama is selected, the model dropdown offers
 
 ## Architecture
 
+The agent is built using **LangGraph**, providing a declarative, stateful workflow for CV tailoring:
+
 ```mermaid
 graph TB
     subgraph Inputs["Inputs"]
@@ -146,7 +148,27 @@ graph TB
     subgraph PimpMyCV["PimpMyCV"]
         CLI["CLI"]
         Archive["ZIP extraction and packaging"]
-        Agent["Rewrite and reflection loop"]
+        
+        subgraph LangGraphAgent["LangGraph Agent"]
+            direction TB
+            GC["generate_candidate<br/>LLM call"]
+            CC["compile_candidate<br/>LaTeX compilation"]
+            HS["handle_compilation_success<br/>Feedback loop"]
+            HF["handle_compilation_failure<br/>Error handling"]
+            HNC["handle_no_candidate<br/>Retry logic"]
+            
+            GC -->|has LaTeX| CC
+            GC -->|no LaTeX| HNC
+            CC -->|success| HS
+            CC -->|failure| HF
+            CC -->|no candidate| HNC
+            HS -->|continue| GC
+            HF -->|continue| GC
+            HNC -->|continue| GC
+            HS -->|end| END
+            HF -->|max attempts| END
+            HNC -->|max attempts| END
+        end
     end
 
     subgraph Prompts["Prompts"]
@@ -177,20 +199,32 @@ graph TB
 
     Inputs --> CLI
     CLI --> Rephraser
-    Rephraser --> Agent
+    Rephraser --> LangGraphAgent
     CLI --> Archive
-    Archive --> Agent
-    Prompts --> Agent
+    Archive --> LangGraphAgent
+    Prompts --> LangGraphAgent
     Prompts --> Rephraser
-    Agent <--> Providers
+    LangGraphAgent <--> Providers
     Rephraser <--> Providers
-    Agent --> Compiler
+    LangGraphAgent --> Compiler
     Compiler -->|Success| Draft
-    Compiler -->|Failure diagnostics| Agent
+    Compiler -->|Failure diagnostics| LangGraphAgent
     Draft -->|Revise| Feedback --> Rephraser
     Draft -->|Accept| Final
     Archive --> Final
 ```
+
+### LangGraph Agent Nodes
+
+The agent uses a stateful graph with 5 specialized nodes:
+
+- **generate_candidate**: Calls the LLM to produce a LaTeX CV candidate using tool calling or text extraction
+- **compile_candidate**: Compiles the LaTeX candidate and returns the result
+- **handle_compilation_success**: Processes successful compilation, requests user feedback if enabled
+- **handle_compilation_failure**: Returns compilation diagnostics to the model for correction
+- **handle_no_candidate**: Handles cases where the model produces no valid LaTeX
+
+Conditional edges route the workflow based on compilation results, attempt limits, and user feedback.
 
 The agent prompts are editable in `src/pimpmycv/prompts/`.
 

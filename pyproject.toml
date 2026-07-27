@@ -9,6 +9,7 @@ description = "Tailor a LaTeX CV to a job description and compile it to PDF."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "langgraph>=0.2,<1",
   "openai>=2.46,<3",
   "pytest>=9.1,<10",
   "python-dotenv>=1.0,<2",
