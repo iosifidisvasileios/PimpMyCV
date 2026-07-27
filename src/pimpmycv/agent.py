@@ -157,6 +157,9 @@ class AgentState(TypedDict):
     response_number: int
     candidate_number: int
     
+    # Termination flag
+    should_terminate: bool
+    
     # Backend reference (not serialized)
     backend: Any
     feedback_callback: Callable[[CompileResult, str, int], str | None] | None
@@ -331,6 +334,7 @@ def handle_compilation_success(state: AgentState) -> dict:
         return {
             "draft_number": draft_number,
             "failed_attempts": 0,
+            "should_terminate": True,
         }
     
     # Request user feedback
@@ -346,6 +350,7 @@ def handle_compilation_success(state: AgentState) -> dict:
         return {
             "draft_number": draft_number,
             "failed_attempts": 0,
+            "should_terminate": True,
         }
     
     feedback_rounds = state["feedback_rounds"] + 1
@@ -385,6 +390,7 @@ def handle_compilation_success(state: AgentState) -> dict:
         "draft_number": draft_number,
         "feedback_rounds": feedback_rounds,
         "failed_attempts": 0,
+        "should_terminate": False,
     }
 
 
@@ -483,32 +489,15 @@ def check_compilation_result(state: AgentState) -> str:
 
 def should_continue(state: AgentState) -> str:
     """Check if we should continue or terminate."""
-    # Check attempt limits first
+    # Check termination flag first
+    if state["should_terminate"]:
+        logger.debug("Termination flag set, ending workflow")
+        return "end"
+    
+    # Check attempt limits
     if state["failed_attempts"] >= state["max_attempts"]:
         logger.warning("Max attempts (%d) reached, aborting", state["max_attempts"])
         return "error"
-    
-    # If we have a successful compilation
-    if state["compile_result"] and state["compile_result"].success:
-        # If no feedback callback or max rounds reached, we're done
-        if state["feedback_callback"] is None or state["feedback_rounds"] >= state["max_feedback_rounds"]:
-            return "end"
-        
-        # If we just incremented draft_number but didn't increment feedback_rounds,
-        # it means the user provided no feedback, so we're done
-        # This is handled by checking if the current node added feedback messages
-        # Since we can't easily detect that from state alone, we use a simpler heuristic:
-        # If we're in handle_success and feedback_rounds didn't increase, we should end
-        # But the node already handles this by not adding messages when feedback is empty
-        # So we just check if new messages were added
-        # For simplicity, we'll use the fact that if feedback_rounds == 0 and we have a success,
-        # and we're not in the first iteration, we should end
-        if state["feedback_rounds"] == 0 and state["draft_number"] > 0:
-            # This means we got a success but no feedback was ever requested/added
-            # We need to check if this is the first draft or subsequent
-            # If it's the first draft and no feedback callback, we end
-            if state["feedback_callback"] is None:
-                return "end"
     
     return "continue"
 
@@ -638,6 +627,7 @@ def tailor_cv(
         "draft_number": 0,
         "response_number": 0,
         "candidate_number": 0,
+        "should_terminate": False,
         "backend": backend,
         "feedback_callback": feedback_callback,
         "last_response": None,
@@ -647,15 +637,20 @@ def tailor_cv(
     # Run the graph
     logger.debug("[LANGGRAPH] Starting graph execution")
     final_state = None
-    for event in app.stream(initial_state):
-        for node_name, node_output in event.items():
-            logger.debug("[LANGGRAPH] Node %s completed", node_name)
-            final_state = node_output
+    
+    # Use invoke to get the final state directly
+    try:
+        final_state = app.invoke(initial_state)
+        logger.debug("[LANGGRAPH] Graph execution completed successfully")
+    except Exception as e:
+        logger.error("[LANGGRAPH] Graph execution failed: %s", e)
+        raise
     
     # Check result
     if final_state and final_state.get("compile_result"):
         result = final_state["compile_result"]
         if result.success:
+            logger.info("Successfully produced compilable CV")
             return result
     
     # Error case
