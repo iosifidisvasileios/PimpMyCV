@@ -1,6 +1,8 @@
 # PimpMyCV
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.56%2B-red?logo=streamlit&logoColor=white)](https://streamlit.io/)
 ![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-blue)
 ![Providers: OpenAI, Azure OpenAI, Ollama](https://img.shields.io/badge/providers-OpenAI%20%7C%20Azure%20OpenAI%20%7C%20Ollama-412991)
 ![Output: LaTeX and PDF](https://img.shields.io/badge/output-LaTeX%20%2B%20PDF-008080)
