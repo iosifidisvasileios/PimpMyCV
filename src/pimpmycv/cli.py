@@ -68,6 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: build)",
     )
     parser.add_argument(
+        "--pdf",
+        type=Path,
+        default=None,
+        help="Full path for output PDF (overrides --output and --pdf-name)",
+    )
+    parser.add_argument(
+        "--pdf-name",
+        default="tailored_cv.pdf",
+        help="Output PDF filename (default: tailored_cv.pdf)",
+    )
+    parser.add_argument(
         "--model",
         default=None,
         help="Model ID, or Azure deployment name",
@@ -181,7 +192,11 @@ def main(argv: list[str] | None = None) -> None:
     except ProviderConfigError as exc:
         raise SystemExit(str(exc)) from exc
 
-    output_pdf = output_dir / "tailored_cv.pdf"
+    if args.pdf:
+        output_pdf = args.pdf.expanduser().resolve()
+        output_dir = output_pdf.parent
+    else:
+        output_pdf = output_dir / args.pdf_name
     output_zip = output_dir / "tailored_cv.zip"
     draft_pdf = output_dir / "draft_cv.pdf"
     draft_zip = output_dir / "draft_cv.zip"

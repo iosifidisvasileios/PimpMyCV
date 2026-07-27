@@ -49,26 +49,6 @@ def preserve_preamble(original: str, candidate: str) -> str:
 TOOLS = [
     {
         "type": "function",
-        "name": "rewrite_instructions",
-        "description": (
-            "Rewrite and clarify the user's instructions to make them more specific "
-            "and actionable for CV tailoring. Returns the rewritten instructions."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "rewritten_instructions": {
-                    "type": "string",
-                    "description": "The rewritten, clarified user instructions.",
-                }
-            },
-            "required": ["rewritten_instructions"],
-            "additionalProperties": False,
-        },
-        "strict": True,
-    },
-    {
-        "type": "function",
         "name": "save_and_compile_cv",
         "description": (
             "Replace the tailored .tex candidate and compile it. Returns success, "
@@ -121,57 +101,25 @@ def rewrite_user_instructions(
         return user_instructions
     
     system_prompt = load_prompt("rewrite_instructions.md")
-    task = render_prompt(
-        "rewrite_instructions.md",
-        user_instructions=user_instructions.strip(),
-    )
     
     logger.info("Rewriting user instructions with model %s.", backend.model)
     response = backend.call_model(
         system_prompt=system_prompt,
-        messages=[{"role": "user", "content": task}],
-        tools=[{
-            "type": "function",
-            "name": "rewrite_instructions",
-            "description": "Rewrite and clarify the user's instructions.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rewritten_instructions": {
-                        "type": "string",
-                        "description": "The rewritten, clarified user instructions.",
-                    }
-                },
-                "required": ["rewritten_instructions"],
-                "additionalProperties": False,
-            },
-            "strict": True,
-        }],
+        messages=[{"role": "user", "content": "## User instructions:\n"+ user_instructions.strip()}],
+        tools=[],
     )
     
-    calls = backend.extract_tool_calls(response)
-    call = calls[0] if calls else None
     response_text = backend.extract_text(response)
     
-    if call is None:
-        logger.warning("Rewriter did not call the tool, using original instructions")
+    if not response_text or not response_text.strip():
+        logger.warning("Rewriter returned empty response, using original instructions")
         return user_instructions
     
-    tool_name, tool_args_str, _ = backend.get_tool_call_info(call)
-    if tool_name != "rewrite_instructions":
-        logger.warning("Rewriter called unknown tool: %s", tool_name)
-        return user_instructions
-    
-    try:
-        arguments = json.loads(tool_args_str)
-        rewritten = arguments["rewritten_instructions"]
-        logger.debug("[AGENT] Instructions rewritten - original=%d chars, rewritten=%d chars", len(user_instructions), len(rewritten))
-        logger.debug("[AGENT] Instructions rewritten - %s",rewritten.strip())
-        logger.info("User instructions rewritten successfully.")
-        return rewritten.strip()
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        logger.warning("Failed to parse rewriter response: %s", exc)
-        return user_instructions
+    rewritten = response_text.strip()
+    logger.debug("[AGENT] Instructions rewritten - original=%d chars, rewritten=%d chars", len(user_instructions), len(rewritten))
+    logger.debug("[AGENT] Instructions rewritten - %s", rewritten)
+    logger.info("User instructions rewritten successfully.")
+    return rewritten
 
 
 def tailor_cv(
@@ -214,11 +162,13 @@ def tailor_cv(
         logger.debug("[AGENT] Debug directory created: %s", debug_dir)
     logger.info("Requesting initial CV rewrite from model %s.", backend.model)
     logger.debug("[AGENT] Calling model API with model=%s", backend.model)
+
     response = backend.call_model(
         system_prompt=system_prompt,
         messages=history,
         tools=TOOLS,
     )
+
     response_id = backend.get_response_id(response)
     logger.debug("[AGENT] Initial response received - response_id=%s", response_id)
 
@@ -245,6 +195,7 @@ def tailor_cv(
         reasoning = backend.extract_reasoning(response)
         if reasoning:
             logger.debug("[AGENT] Response %d contains reasoning (%d chars)", response_number, len(reasoning))
+            logger.debug("[AGENT] [REASONING] %s", reasoning)
             if debug_dir is not None:
                 reasoning_path = debug_dir / f"reasoning-{response_number:02d}.txt"
                 reasoning_path.write_text(reasoning, encoding="utf-8")

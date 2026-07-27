@@ -40,7 +40,3 @@ You will receive:
 ## Output
 
 Return only the rewritten instructions, without any preamble, explanation, commentary, or additional content.
-
-<user_instructions>
-${user_instructions}
-</user_instructions>

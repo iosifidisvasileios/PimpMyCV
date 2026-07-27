@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from queue import Empty, Queue
+import shutil
 import sys
 import tempfile
 from threading import Event, Thread
@@ -46,6 +47,8 @@ class TailoredFiles:
     provider: str
     model: str
     main_tex: str
+    pdf_filename: str
+    pdf_directory: str | None
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,8 @@ def tailor_uploaded_cv(
         str | None,
     ]
     | None = None,
+    pdf_filename: str = "tailored_cv.pdf",
+    pdf_directory: str | None = None,
 ) -> TailoredFiles:
     """Run the existing tailoring pipeline against browser-uploaded inputs."""
     if not cv_zip:
@@ -184,6 +189,14 @@ def tailor_uploaded_cv(
         api_version=api_version or None,
     )
 
+    # Determine output directory
+    if pdf_directory:
+        output_dir = Path(pdf_directory).expanduser().resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        use_temp = False
+    else:
+        use_temp = True
+
     with tempfile.TemporaryDirectory(prefix="pimpmycv-gui-") as temp_dir:
         work_dir = Path(temp_dir)
         archive_path = work_dir / "uploaded_cv.zip"
@@ -203,14 +216,29 @@ def tailor_uploaded_cv(
                 max_feedback_rounds=max_feedback_rounds,
                 feedback_callback=feedback_callback,
             )
-            write_tailored_archive(project, output_zip, pdf_path=result.pdf_path)
+            
+            # Save PDF to custom directory if specified
+            if not use_temp:
+                pdf_save_path = output_dir / pdf_filename
+                shutil.copy2(result.pdf_path, pdf_save_path)
+                output_zip_path = output_dir / "tailored_cv.zip"
+                write_tailored_archive(project, output_zip_path, pdf_path=result.pdf_path)
+                pdf_bytes = pdf_save_path.read_bytes()
+                zip_bytes = output_zip_path.read_bytes()
+            else:
+                write_tailored_archive(project, output_zip, pdf_path=result.pdf_path)
+                pdf_bytes = result.pdf_path.read_bytes()
+                zip_bytes = output_zip.read_bytes()
+            
             return TailoredFiles(
-                pdf=result.pdf_path.read_bytes(),
-                project_zip=output_zip.read_bytes(),
+                pdf=pdf_bytes,
+                project_zip=zip_bytes,
                 engine=result.engine,
                 provider=backend.provider,
                 model=backend.model,
                 main_tex=project.main_relative_path.as_posix(),
+                pdf_filename=pdf_filename,
+                pdf_directory=str(output_dir) if not use_temp else None,
             )
 
 
@@ -328,6 +356,17 @@ def render_app() -> None:
                 placeholder="Auto-detect",
                 help="Only needed when the ZIP contains multiple LaTeX documents.",
             )
+            pdf_filename = st.text_input(
+                "PDF filename",
+                value="tailored_cv.pdf",
+                help="Custom filename for the downloaded PDF.",
+            )
+            default_download_dir = str(Path.home() / "Downloads")
+            pdf_directory = st.text_input(
+                "PDF directory",
+                value=default_download_dir,
+                help="Note: Actual save location is controlled by your browser's download settings.",
+            )
 
     with st.form("tailor_cv"):
         cv_upload = st.file_uploader(
@@ -386,6 +425,8 @@ def render_app() -> None:
                 engine=engine,
                 max_attempts=int(max_attempts),
                 max_feedback_rounds=int(max_feedback_rounds),
+                pdf_filename=pdf_filename.strip() or "tailored_cv.pdf",
+                pdf_directory=pdf_directory.strip() or None,
             ).start()
             st.rerun()
         except ValueError as exc:
@@ -482,6 +523,8 @@ def render_app() -> None:
                 f"{output.provider} · {output.model} · "
                 f"{output.engine} · {output.main_tex}"
             )
+            if output.pdf_directory:
+                st.caption(f"💾 Suggested save location: {output.pdf_directory}")
             _render_pdf(
                 st,
                 output.pdf,
@@ -493,7 +536,7 @@ def render_app() -> None:
                 st.download_button(
                     "Download PDF",
                     output.pdf,
-                    file_name="tailored_cv.pdf",
+                    file_name=output.pdf_filename,
                     mime="application/pdf",
                     type="primary",
                     use_container_width=True,
