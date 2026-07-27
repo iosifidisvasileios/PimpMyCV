@@ -112,10 +112,9 @@ attempts, and `pimpmycv --help` for all options.
 
 ### Browser GUI
 
-Launch the optional local web interface:
+Launch the local web interface:
 
 ```bash
-python -m pip install -e ".[gui]"
 pimpmycv-gui
 ```
 

@@ -12,10 +12,6 @@ dependencies = [
   "openai>=2.46,<3",
   "pytest>=9.1,<10",
   "python-dotenv>=1.0,<2",
-]
-
-[project.optional-dependencies]
-gui = [
   "streamlit>=1.56,<2",
 ]
 
