@@ -148,27 +148,27 @@ graph TB
     subgraph PimpMyCV["PimpMyCV"]
         CLI["CLI"]
         Archive["ZIP extraction and packaging"]
+    end
+
+    subgraph LangGraphAgent["LangGraph Agent"]
+        direction TB
+        GC["generate_candidate<br/>LLM call"]
+        CC["compile_candidate<br/>LaTeX compilation"]
+        HS["handle_compilation_success<br/>Feedback loop"]
+        HF["handle_compilation_failure<br/>Error handling"]
+        HNC["handle_no_candidate<br/>Retry logic"]
         
-        subgraph LangGraphAgent["LangGraph Agent"]
-            direction TB
-            GC["generate_candidate<br/>LLM call"]
-            CC["compile_candidate<br/>LaTeX compilation"]
-            HS["handle_compilation_success<br/>Feedback loop"]
-            HF["handle_compilation_failure<br/>Error handling"]
-            HNC["handle_no_candidate<br/>Retry logic"]
-            
-            GC -->|has LaTeX| CC
-            GC -->|no LaTeX| HNC
-            CC -->|success| HS
-            CC -->|failure| HF
-            CC -->|no candidate| HNC
-            HS -->|continue| GC
-            HF -->|continue| GC
-            HNC -->|continue| GC
-            HS -->|end| END
-            HF -->|max attempts| END
-            HNC -->|max attempts| END
-        end
+        GC -->|has LaTeX| CC
+        GC -->|no LaTeX| HNC
+        CC -->|success| HS
+        CC -->|failure| HF
+        CC -->|no candidate| HNC
+        HS -->|continue| GC
+        HF -->|continue| GC
+        HNC -->|continue| GC
+        HS -->|end| END
+        HF -->|max attempts| END
+        HNC -->|max attempts| END
     end
 
     subgraph Prompts["Prompts"]
