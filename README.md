@@ -139,79 +139,28 @@ The agent is built using **LangGraph**, providing a declarative, stateful workfl
 
 ```mermaid
 graph TB
-    subgraph Inputs["Inputs"]
-        CV["LaTeX CV project ZIP"]
-        Job["Job description"]
-        Instructions["Optional instructions"]
-    end
-
-    subgraph PimpMyCV["PimpMyCV"]
-        CLI["CLI"]
-        Archive["ZIP extraction and packaging"]
-    end
-
-    subgraph LangGraphAgent["LangGraph Agent"]
-        direction TB
-        GC["generate_candidate<br/>LLM call"]
-        CC["compile_candidate<br/>LaTeX compilation"]
-        HS["handle_compilation_success<br/>Feedback loop"]
-        HF["handle_compilation_failure<br/>Error handling"]
-        HNC["handle_no_candidate<br/>Retry logic"]
-        
-        GC -->|has LaTeX| CC
-        GC -->|no LaTeX| HNC
-        CC -->|success| HS
-        CC -->|failure| HF
-        CC -->|no candidate| HNC
-        HS -->|continue| GC
-        HF -->|continue| GC
-        HNC -->|continue| GC
-        HS -->|end| END
-        HF -->|max attempts| END
-        HNC -->|max attempts| END
-    end
-
-    subgraph Prompts["Prompts"]
-        P1["System prompt"]
-        P2["Task prompt"]
-        P3["Rewrite instructions"]
-    end
-
-    subgraph Rephraser["Rephraser"]
-        R1["Instruction rephraser"]
-    end
-
-    subgraph Compiler["LaTeX Compiler"]
-        C1["Compilation engine"]
-    end
-
-    subgraph Providers["LLM Providers"]
-        OpenAI["OpenAI"]
-        Azure["Azure OpenAI"]
-        Ollama["Ollama"]
-    end
-
-    subgraph Review_and_Output["Review and output"]
-        Draft["Compiled draft PDF"]
-        Feedback["User feedback"]
-        Final["Final PDF and project ZIP"]
-    end
-
-    Inputs --> CLI
-    CLI --> Rephraser
-    Rephraser --> LangGraphAgent
-    CLI --> Archive
-    Archive --> LangGraphAgent
-    Prompts --> LangGraphAgent
-    Prompts --> Rephraser
-    LangGraphAgent <--> Providers
-    Rephraser <--> Providers
-    LangGraphAgent --> Compiler
-    Compiler -->|Success| Draft
-    Compiler -->|Failure diagnostics| LangGraphAgent
-    Draft -->|Revise| Feedback --> Rephraser
-    Draft -->|Accept| Final
-    Archive --> Final
+    Inputs["Inputs<br/>CV ZIP, Job description, Instructions"]
+    
+    PimpMyCV["PimpMyCV<br/>CLI & Archive handling"]
+    
+    Agent["LangGraph Agent<br/>CV tailoring workflow"]
+    
+    Prompts["Prompts<br/>System, Task, Rewrite instructions"]
+    
+    Compiler["LaTeX Compiler<br/>Compilation engine"]
+    
+    Providers["LLM Providers<br/>OpenAI, Azure, Ollama"]
+    
+    Output["Output<br/>Draft PDF, Final PDF & ZIP"]
+    
+    Inputs --> PimpMyCV
+    PimpMyCV --> Agent
+    Prompts --> Agent
+    Agent <--> Providers
+    Agent --> Compiler
+    Compiler -->|Success| Output
+    Compiler -->|Failure diagnostics| Agent
+    Output -->|Feedback loop| Agent
 ```
 
 ### LangGraph Agent Nodes
