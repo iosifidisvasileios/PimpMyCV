@@ -605,9 +605,6 @@ def render_app() -> None:
                 f"(Embedding: {assessment_result.embedding_score:.1f}%, "
                 f"LLM Judge: {assessment_result.llm_judge_score:.1f}%)"
             )
-            if st.button("Clear assessment"):
-                st.session_state.pop("assessment_result")
-                st.rerun()
 
         draft = st.session_state.get("draft_review")
         if draft is not None:
