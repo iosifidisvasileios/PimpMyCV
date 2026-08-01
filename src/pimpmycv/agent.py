@@ -10,6 +10,7 @@ from typing import Any, Callable, TypedDict
 
 from langgraph.graph import StateGraph, END
 
+from .assessment import AssessmentScores, create_assessor
 from .compiler import CompileResult, compile_latex
 
 
@@ -167,6 +168,10 @@ class AgentState(TypedDict):
     # Response tracking for stateful APIs
     last_response: Any
     last_response_id: str | None
+    
+    # Assessment scores
+    pre_assessment: AssessmentScores | None
+    post_assessment: AssessmentScores | None
 
 
 # LangGraph Nodes
@@ -318,7 +323,7 @@ def compile_candidate(state: AgentState) -> dict:
 
 
 def handle_compilation_success(state: AgentState) -> dict:
-    """Handle successful compilation and request user feedback if needed."""
+    """Handle successful compilation, run post-assessment, and request user feedback if needed."""
     logger = logging.getLogger(__name__)
     logger.debug("[LANGGRAPH] handle_compilation_success node called")
     
@@ -328,6 +333,16 @@ def handle_compilation_success(state: AgentState) -> dict:
     
     logger.info("Candidate %d produced a PDF.", state["candidate_number"])
     
+    # Run post-assessment on the generated CV
+    try:
+        assessor = create_assessor(state["backend"])
+        generated_cv_tex = state["latex_candidate"] or state["output_tex"].read_text(encoding="utf-8")
+        post_assessment = assessor.assess(generated_cv_tex, state["job_description"])
+        logger.info(f"Post-assessment for draft {draft_number}: {post_assessment}")
+    except Exception as e:
+        logger.warning(f"Post-assessment failed for draft {draft_number}: {e}")
+        post_assessment = None
+    
     # Check if we should request feedback
     if state["feedback_callback"] is None or state["feedback_rounds"] >= state["max_feedback_rounds"]:
         logger.debug("No feedback callback or max rounds reached, accepting draft")
@@ -335,6 +350,7 @@ def handle_compilation_success(state: AgentState) -> dict:
             "draft_number": draft_number,
             "failed_attempts": 0,
             "should_terminate": True,
+            "post_assessment": post_assessment,
         }
     
     # Request user feedback
@@ -343,6 +359,7 @@ def handle_compilation_success(state: AgentState) -> dict:
         result,
         summary.strip(),
         draft_number,
+        post_assessment,
     )
     
     if not user_feedback or not user_feedback.strip():
@@ -351,6 +368,7 @@ def handle_compilation_success(state: AgentState) -> dict:
             "draft_number": draft_number,
             "failed_attempts": 0,
             "should_terminate": True,
+            "post_assessment": post_assessment,
         }
     
     feedback_rounds = state["feedback_rounds"] + 1
@@ -391,6 +409,7 @@ def handle_compilation_success(state: AgentState) -> dict:
         "feedback_rounds": feedback_rounds,
         "failed_attempts": 0,
         "should_terminate": False,
+        "post_assessment": post_assessment,
     }
 
 
@@ -515,6 +534,7 @@ def tailor_cv(
     max_feedback_rounds: int = 5,
     feedback_callback: Callable[[CompileResult, str, int], str | None] | None = None,
     debug_dir: Path | None = None,
+    enable_assessment: bool = True,
 ) -> CompileResult:
     """Let the model edit, compile, inspect, and retry a LaTeX CV using LangGraph."""
     logger = logging.getLogger(__name__)
@@ -524,6 +544,16 @@ def tailor_cv(
         raise ValueError("max_attempts must be at least 1")
     if max_feedback_rounds < 0:
         raise ValueError("max_feedback_rounds cannot be negative")
+    
+    # Run pre-assessment on original CV
+    pre_assessment = None
+    if enable_assessment:
+        try:
+            assessor = create_assessor(backend)
+            pre_assessment = assessor.assess(cv_tex, job_description)
+            logger.info(f"Pre-assessment: {pre_assessment}")
+        except Exception as e:
+            logger.warning(f"Pre-assessment failed: {e}")
     
     # Rewrite user instructions
     user_instructions = rewrite_user_instructions(backend, user_instructions)
@@ -632,6 +662,8 @@ def tailor_cv(
         "feedback_callback": feedback_callback,
         "last_response": None,
         "last_response_id": None,
+        "pre_assessment": pre_assessment,
+        "post_assessment": None,
     }
     
     # Run the graph

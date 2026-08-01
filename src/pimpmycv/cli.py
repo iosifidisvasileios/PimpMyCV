@@ -9,6 +9,7 @@ import shutil
 from openai import OpenAIError
 
 from .agent import tailor_cv
+from .assessment import AssessmentScores, create_assessor
 from .archive import ArchiveError, extract_cv_archive, write_tailored_archive
 from .compiler import SUPPORTED_ENGINES, find_engine
 from .providers import PROVIDERS, ProviderConfigError, create_backend
@@ -116,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show detailed progress and save attempts under OUTPUT/debug",
     )
+    parser.add_argument(
+        "--no-assessment",
+        action="store_true",
+        help="Disable CV-job description matching assessment",
+    )
     return parser
 
 
@@ -171,6 +177,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("--max-attempts must be at least 1.")
     if args.max_feedback_rounds < 0:
         raise SystemExit("--max-feedback-rounds cannot be negative.")
+    
+    enable_assessment = not args.no_assessment
 
     try:
         logger.debug("[CLI] Finding LaTeX engine: %s", args.engine)
@@ -215,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
         with extract_cv_archive(cv_path, args.main_tex) as project:
             logger.info("Main LaTeX document: %s", project.main_relative_path)
             logger.debug("[CLI] Archive extracted - root=%s, members=%d", project.root, len(project.members))
-            def request_feedback(result, summary: str, draft_number: int) -> str | None:
+            def request_feedback(result, summary: str, draft_number: int, post_assessment: AssessmentScores | None = None) -> str | None:
                 logger.debug("[CLI] request_feedback() called - draft_number=%d", draft_number)
                 output_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(result.pdf_path, draft_pdf)
@@ -226,6 +234,9 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"  Project: {draft_zip}")
                 print("\nAgent's rewrite summary:")
                 print(summary)
+                if post_assessment is not None:
+                    print(f"\nMatch Assessment: {post_assessment.combined_score:.1f}%")
+                    print(f"  (Embedding: {post_assessment.embedding_score:.1f}%, LLM Judge: {post_assessment.llm_judge_score:.1f}%)")
                 try:
                     feedback = input(
                         "\nEnter feedback for another revision, or press Enter to accept: "
@@ -234,6 +245,20 @@ def main(argv: list[str] | None = None) -> None:
                     return None
                 return feedback.strip() or None
 
+            # Run pre-assessment if enabled
+            pre_assessment = None
+            if enable_assessment:
+                try:
+                    assessor = create_assessor(backend)
+                    pre_assessment = assessor.assess(
+                        project.main_tex.read_text(encoding="utf-8"),
+                        job_path.read_text(encoding="utf-8")
+                    )
+                    print(f"\nPre-assessment (Original CV): {pre_assessment.combined_score:.1f}%")
+                    print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
+                except Exception as e:
+                    logger.warning(f"Pre-assessment failed: {e}")
+            
             logger.debug("[CLI] Calling tailor_cv() with max_attempts=%d, max_feedback_rounds=%d", args.max_attempts, args.max_feedback_rounds)
             result = tailor_cv(
                 backend,
@@ -251,8 +276,30 @@ def main(argv: list[str] | None = None) -> None:
                 max_feedback_rounds=args.max_feedback_rounds,
                 feedback_callback=None if args.no_feedback else request_feedback,
                 debug_dir=output_dir / "debug" if args.debug else None,
+                enable_assessment=enable_assessment,
             )
             logger.debug("[CLI] tailor_cv() completed successfully")
+            
+            # Run post-assessment if enabled
+            post_assessment = None
+            if enable_assessment:
+                try:
+                    assessor = create_assessor(backend)
+                    post_assessment = assessor.assess(
+                        project.main_tex.read_text(encoding="utf-8"),
+                        job_path.read_text(encoding="utf-8")
+                    )
+                    print(f"\nPost-assessment (Tailored CV): {post_assessment.combined_score:.1f}%")
+                    print(f"  (Embedding: {post_assessment.embedding_score:.1f}%, LLM Judge: {post_assessment.llm_judge_score:.1f}%)")
+                    if pre_assessment is not None:
+                        improvement = post_assessment.combined_score - pre_assessment.combined_score
+                        if improvement > 0:
+                            print(f"Improvement: +{improvement:.1f}%")
+                        elif improvement < 0:
+                            print(f"Change: {improvement:.1f}%")
+                except Exception as e:
+                    logger.warning(f"Post-assessment failed: {e}")
+            
             logger.debug("[CLI] Writing final output files...")
             output_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(result.pdf_path, output_pdf)

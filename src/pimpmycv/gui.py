@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import json
+import logging
 import os
 from pathlib import Path
 from queue import Empty, Queue
@@ -15,6 +16,7 @@ import urllib.request
 import urllib.error
 
 from pimpmycv.agent import tailor_cv
+from pimpmycv.assessment import AssessmentScores
 from pimpmycv.archive import extract_cv_archive, write_tailored_archive
 from pimpmycv.compiler import CompileResult, SUPPORTED_ENGINES, find_engine
 from pimpmycv.providers import (
@@ -22,6 +24,9 @@ from pimpmycv.providers import (
     ProviderName,
     create_backend,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_ollama_models() -> tuple[str, ...]:
@@ -49,6 +54,8 @@ class TailoredFiles:
     main_tex: str
     pdf_filename: str
     pdf_directory: str | None
+    pre_assessment: AssessmentScores | None = None
+    post_assessment: AssessmentScores | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,7 @@ class DraftReview:
     pdf: bytes
     summary: str
     number: int
+    post_assessment: AssessmentScores | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +120,7 @@ class GuiTailoringJob:
         result: CompileResult,
         summary: str,
         draft_number: int,
+        post_assessment: AssessmentScores | None = None,
     ) -> str | None:
         self._waiting_for_feedback.set()
         self.events.put(
@@ -121,6 +130,7 @@ class GuiTailoringJob:
                     pdf=result.pdf_path.read_bytes(),
                     summary=summary,
                     number=draft_number,
+                    post_assessment=post_assessment,
                 ),
             )
         )
@@ -163,7 +173,7 @@ def tailor_uploaded_cv(
     max_attempts: int = 4,
     max_feedback_rounds: int = 5,
     feedback_callback: Callable[
-        [CompileResult, str, int],
+        [CompileResult, str, int, AssessmentScores | None],
         str | None,
     ]
     | None = None,
@@ -204,6 +214,28 @@ def tailor_uploaded_cv(
         archive_path.write_bytes(cv_zip)
 
         with extract_cv_archive(archive_path, main_tex or None) as project:
+            # Create a wrapper callback to capture assessment scores
+            pre_assessment = None
+            post_assessment = None
+            
+            def assessment_wrapper(result, summary, draft_number, post_assessment_score=None):
+                nonlocal post_assessment
+                post_assessment = post_assessment_score
+                if feedback_callback:
+                    return feedback_callback(result, summary, draft_number, post_assessment_score)
+                return None
+            
+            # Run pre-assessment
+            try:
+                from pimpmycv.assessment import create_assessor
+                assessor = create_assessor(backend)
+                pre_assessment = assessor.assess(
+                    project.main_tex.read_text(encoding="utf-8"),
+                    job_description
+                )
+            except Exception as e:
+                logger.warning(f"Pre-assessment failed: {e}")
+            
             result = tailor_cv(
                 backend,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
@@ -214,7 +246,7 @@ def tailor_uploaded_cv(
                 engine=selected_engine,
                 max_attempts=max_attempts,
                 max_feedback_rounds=max_feedback_rounds,
-                feedback_callback=feedback_callback,
+                feedback_callback=assessment_wrapper,
             )
             
             # Save PDF to custom directory if specified
@@ -239,6 +271,8 @@ def tailor_uploaded_cv(
                 main_tex=project.main_relative_path.as_posix(),
                 pdf_filename=pdf_filename,
                 pdf_directory=str(output_dir) if not use_temp else None,
+                pre_assessment=pre_assessment,
+                post_assessment=post_assessment,
             )
 
 
@@ -392,12 +426,20 @@ def render_app() -> None:
             height=110,
             placeholder="For example: Keep it to one page and emphasize platform work.",
         )
-        submitted = st.form_submit_button(
-            "Tailor my CV",
-            type="primary",
-            use_container_width=True,
-            disabled=job_is_running,
-        )
+        tailor_col, assess_col = st.columns(2)
+        with tailor_col:
+            submitted = st.form_submit_button(
+                "Tailor my CV",
+                type="primary",
+                use_container_width=True,
+                disabled=job_is_running,
+            )
+        with assess_col:
+            assess_only = st.form_submit_button(
+                "Assess original CV",
+                use_container_width=True,
+                disabled=job_is_running,
+            )
 
     if submitted:
         try:
@@ -432,6 +474,44 @@ def render_app() -> None:
         except ValueError as exc:
             st.session_state.pop("tailored_files", None)
             st.error(str(exc))
+    
+    if assess_only:
+        try:
+            if cv_upload is None:
+                raise ValueError("Upload your CV project ZIP.")
+            resolved_job = job_text.strip() or _decode_upload(
+                job_upload, "Job description"
+            ).strip()
+            if not resolved_job:
+                raise ValueError("Enter or upload a job description for assessment.")
+            
+            with tempfile.TemporaryDirectory(prefix="pimpmycv-assess-") as temp_dir:
+                work_dir = Path(temp_dir)
+                archive_path = work_dir / "uploaded_cv.zip"
+                archive_path.write_bytes(cv_upload.getvalue())
+                
+                with extract_cv_archive(archive_path, main_tex.strip() or None) as project:
+                    backend = create_backend(
+                        provider,
+                        model=model.strip() or None,
+                        endpoint=endpoint.strip() or None,
+                        api_key=api_key.strip() or None,
+                        api_version=api_version.strip() or None,
+                    )
+                    
+                    from pimpmycv.assessment import create_assessor
+                    assessor = create_assessor(backend)
+                    assessment = assessor.assess(
+                        project.main_tex.read_text(encoding="utf-8"),
+                        resolved_job
+                    )
+                    
+                    st.session_state["assessment_result"] = assessment
+                    st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Assessment failed: {str(exc)}")
 
     current_job = st.session_state.get("tailoring_job")
     should_poll = (
@@ -461,12 +541,35 @@ def render_app() -> None:
         error = st.session_state.get("tailoring_error")
         if error:
             st.error(error)
+        
+        # Display standalone assessment result
+        assessment_result = st.session_state.get("assessment_result")
+        if assessment_result is not None:
+            st.divider()
+            st.subheader("CV-Job Description Assessment")
+            st.info(
+                f"**Match Score:** {assessment_result.combined_score:.1f}% "
+                f"(Embedding: {assessment_result.embedding_score:.1f}%, "
+                f"LLM Judge: {assessment_result.llm_judge_score:.1f}%)"
+            )
+            if st.button("Clear assessment"):
+                st.session_state.pop("assessment_result")
+                st.rerun()
 
         draft = st.session_state.get("draft_review")
         if draft is not None:
             st.divider()
             st.subheader(f"Review draft {draft.number}")
             st.caption("Inspect the PDF, then accept it or request another revision.")
+            
+            # Display post-assessment scores if available
+            if draft.post_assessment is not None:
+                st.info(
+                    f"**Match Assessment:** {draft.post_assessment.combined_score:.1f}% "
+                    f"(Embedding: {draft.post_assessment.embedding_score:.1f}%, "
+                    f"LLM Judge: {draft.post_assessment.llm_judge_score:.1f}%)"
+                )
+            
             _render_pdf(
                 st,
                 draft.pdf,
@@ -525,6 +628,29 @@ def render_app() -> None:
             )
             if output.pdf_directory:
                 st.caption(f"💾 Suggested save location: {output.pdf_directory}")
+            
+            # Display assessment scores
+            if output.pre_assessment is not None or output.post_assessment is not None:
+                st.divider()
+                if output.pre_assessment is not None:
+                    st.info(
+                        f"**Pre-assessment (Original CV):** {output.pre_assessment.combined_score:.1f}% "
+                        f"(Embedding: {output.pre_assessment.embedding_score:.1f}%, "
+                        f"LLM Judge: {output.pre_assessment.llm_judge_score:.1f}%)"
+                    )
+                if output.post_assessment is not None:
+                    st.success(
+                        f"**Post-assessment (Tailored CV):** {output.post_assessment.combined_score:.1f}% "
+                        f"(Embedding: {output.post_assessment.embedding_score:.1f}%, "
+                        f"LLM Judge: {output.post_assessment.llm_judge_score:.1f}%)"
+                    )
+                if output.pre_assessment is not None and output.post_assessment is not None:
+                    improvement = output.post_assessment.combined_score - output.pre_assessment.combined_score
+                    if improvement > 0:
+                        st.success(f"**Improvement:** +{improvement:.1f}%")
+                    elif improvement < 0:
+                        st.warning(f"**Change:** {improvement:.1f}%")
+            
             _render_pdf(
                 st,
                 output.pdf,

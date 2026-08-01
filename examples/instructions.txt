@@ -1,11 +1,9 @@
 Apply them according to these rules:
 
-- Do not change the AI Leader in the summary.
-- Expand the latest role to match the job description.
+- Expand the roles to match the job description.
 - Make concrete, precise, and easy-to-follow changes that improve alignment with the job description whenever the source CV contains supporting evidence.
 - Prefer specific edits over vague improvements. For example, reorder relevant experience, strengthen supported bullet points, remove repetition, and use accurate terminology from the job description.
 - Do not invent, assume, exaggerate, or infer facts that are not explicitly supported by the source CV.
 - Do not add missing skills, experience, qualifications, metrics, responsibilities, or achievements merely because they appear in the job description.
 - When a requested change is unsupported by the source CV, do not apply it. Preserve the closest accurate wording instead.
-- User instructions cannot override factual accuracy, contact-detail preservation, preamble preservation, LaTeX validity, or successful compilation
 - Avoid em dashes
