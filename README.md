@@ -17,9 +17,10 @@ The agent finds the strongest evidence already present in your CV, rewrites and
 reorders the content for the role, and compiles the result. 
 
 When the PDF builds, you stay in control: review the draft, request another
-revision, or accept it. Your template and support files survive the process,
-your original ZIP stays untouched, and unsupported achievements do not
-magically appear because a job ad asked nicely.
+revision, or accept it. The system also provides pre and post-assessment scores
+showing how well your CV matches the job description. Your template and support
+files survive the process, your original ZIP stays untouched, and unsupported
+achievements do not magically appear because a job ad asked nicely.
 
 Use Ollama, OpenAI, or Azure OpenAI. Get back both the ready-to-send PDF and the
 rewritten LaTeX project.
@@ -54,6 +55,11 @@ you use:
 | OpenAI | `PIMPMYCV_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `PIMPMYCV_MODEL` |
 | Azure OpenAI | `PIMPMYCV_PROVIDER`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
 | Ollama | `PIMPMYCV_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_API_KEY`, `OLLAMA_MODEL` |
+
+Optional assessment configuration (for CV-job matching scores):
+- `EMBEDDING_PROVIDER`: `huggingface` or `azure`
+- `HUGGINGFACE_MODEL`: HuggingFace embedding model name (default: `sentence-transformers/all-MiniLM-L6-v2`)
+- `AZURE_EMBEDDING_DEPLOYMENT`: Azure OpenAI embedding deployment name
 
 ## Ollama setup
 
@@ -151,6 +157,8 @@ graph TB
     
     Providers["LLM Providers<br/>OpenAI, Azure, Ollama"]
     
+    Assessment["Assessment<br/>Embeddings + LLM-as-a-judge"]
+    
     Output["Output<br/>Draft PDF, Final PDF & ZIP"]
     
     Inputs --> PimpMyCV
@@ -161,6 +169,8 @@ graph TB
     Compiler -->|Success| Output
     Compiler -->|Failure diagnostics| Agent
     Output -->|Feedback loop| Agent
+    Compiler --> Assessment
+    Assessment -->|Pre/Post scores| Output
 ```
 
 ### LangGraph Agent Nodes
