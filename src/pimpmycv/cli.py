@@ -245,17 +245,44 @@ def main(argv: list[str] | None = None) -> None:
                     return None
                 return feedback.strip() or None
 
-            # Run pre-assessment if enabled
+            # Run pre-assessment if enabled (compile to PDF first)
             pre_assessment = None
+            original_cv_pdf = None
             if enable_assessment:
                 try:
-                    assessor = create_assessor(backend)
-                    pre_assessment = assessor.assess(
-                        project.main_tex.read_text(encoding="utf-8"),
-                        job_path.read_text(encoding="utf-8")
+                    from .compiler import compile_latex
+                    logger.debug("[CLI] Compiling original CV for pre-assessment")
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    temp_output_tex = output_dir / "original_cv.tex"
+                    temp_output_tex.write_text(project.main_tex.read_text(encoding="utf-8"), encoding="utf-8")
+                    
+                    original_compile_result = compile_latex(
+                        temp_output_tex,
+                        source_dir=project.main_tex.parent,
+                        engine=selected_engine,
                     )
-                    print(f"\nPre-assessment (Original CV): {pre_assessment.combined_score:.1f}%")
-                    print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
+                    
+                    if original_compile_result.success:
+                        original_cv_pdf = original_compile_result.pdf_path
+                        logger.debug(f"[CLI] Original CV compiled to PDF: {original_cv_pdf}")
+                        
+                        assessor = create_assessor(backend)
+                        pre_assessment = assessor.assess(
+                            project.main_tex.read_text(encoding="utf-8"),
+                            job_path.read_text(encoding="utf-8"),
+                            cv_pdf_path=original_cv_pdf
+                        )
+                        print(f"\nPre-assessment (Original CV): {pre_assessment.combined_score:.1f}%")
+                        print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
+                    else:
+                        logger.warning("[CLI] Original CV compilation failed, using LaTeX text for pre-assessment")
+                        assessor = create_assessor(backend)
+                        pre_assessment = assessor.assess(
+                            project.main_tex.read_text(encoding="utf-8"),
+                            job_path.read_text(encoding="utf-8")
+                        )
+                        print(f"\nPre-assessment (Original CV - from LaTeX): {pre_assessment.combined_score:.1f}%")
+                        print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
                 except Exception as e:
                     logger.warning(f"Pre-assessment failed: {e}")
             
@@ -276,18 +303,19 @@ def main(argv: list[str] | None = None) -> None:
                 max_feedback_rounds=args.max_feedback_rounds,
                 feedback_callback=None if args.no_feedback else request_feedback,
                 debug_dir=output_dir / "debug" if args.debug else None,
-                enable_assessment=enable_assessment,
+                enable_assessment=False,  # Disable internal assessment since we do it manually
             )
             logger.debug("[CLI] tailor_cv() completed successfully")
             
-            # Run post-assessment if enabled
+            # Run post-assessment if enabled (use the compiled PDF)
             post_assessment = None
             if enable_assessment:
                 try:
                     assessor = create_assessor(backend)
                     post_assessment = assessor.assess(
                         project.main_tex.read_text(encoding="utf-8"),
-                        job_path.read_text(encoding="utf-8")
+                        job_path.read_text(encoding="utf-8"),
+                        cv_pdf_path=result.pdf_path
                     )
                     print(f"\nPost-assessment (Tailored CV): {post_assessment.combined_score:.1f}%")
                     print(f"  (Embedding: {post_assessment.embedding_score:.1f}%, LLM Judge: {post_assessment.llm_judge_score:.1f}%)")

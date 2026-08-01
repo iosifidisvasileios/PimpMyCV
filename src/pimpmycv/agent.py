@@ -337,7 +337,8 @@ def handle_compilation_success(state: AgentState) -> dict:
     try:
         assessor = create_assessor(state["backend"])
         generated_cv_tex = state["latex_candidate"] or state["output_tex"].read_text(encoding="utf-8")
-        post_assessment = assessor.assess(generated_cv_tex, state["job_description"])
+        # Use the compiled PDF for text extraction
+        post_assessment = assessor.assess(generated_cv_tex, state["job_description"], cv_pdf_path=result.pdf_path)
         logger.info(f"Post-assessment for draft {draft_number}: {post_assessment}")
     except Exception as e:
         logger.warning(f"Post-assessment failed for draft {draft_number}: {e}")
@@ -547,11 +548,32 @@ def tailor_cv(
     
     # Run pre-assessment on original CV
     pre_assessment = None
+    original_cv_pdf = None
     if enable_assessment:
         try:
-            assessor = create_assessor(backend)
-            pre_assessment = assessor.assess(cv_tex, job_description)
-            logger.info(f"Pre-assessment: {pre_assessment}")
+            # Compile original CV to PDF for text extraction
+            logger.debug("Compiling original CV for pre-assessment")
+            output_tex.parent.mkdir(parents=True, exist_ok=True)
+            output_tex.write_text(cv_tex, encoding="utf-8")
+            
+            original_compile_result = compile_latex(
+                output_tex,
+                source_dir=source_dir,
+                engine=engine,
+            )
+            
+            if original_compile_result.success:
+                original_cv_pdf = original_compile_result.pdf_path
+                logger.debug(f"Original CV compiled to PDF: {original_cv_pdf}")
+                
+                assessor = create_assessor(backend)
+                pre_assessment = assessor.assess(cv_tex, job_description, cv_pdf_path=original_cv_pdf)
+                logger.info(f"Pre-assessment: {pre_assessment}")
+            else:
+                logger.warning("Original CV compilation failed, using LaTeX text for pre-assessment")
+                assessor = create_assessor(backend)
+                pre_assessment = assessor.assess(cv_tex, job_description)
+                logger.info(f"Pre-assessment (from LaTeX): {pre_assessment}")
         except Exception as e:
             logger.warning(f"Pre-assessment failed: {e}")
     

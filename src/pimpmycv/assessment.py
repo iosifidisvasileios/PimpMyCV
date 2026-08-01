@@ -2,10 +2,40 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def extract_text_from_pdf(pdf_path: Path) -> str:
+    """
+    Extract text content from a PDF file.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        
+    Returns:
+        Extracted text content as a string
+    """
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        text_parts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text)
+        return "\n".join(text_parts)
+    except ImportError:
+        raise ImportError(
+            "pypdf is required for PDF text extraction. "
+            "Install it with: pip install pypdf"
+        )
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF {pdf_path}: {e}")
+        raise
 
 
 @dataclass
@@ -83,8 +113,22 @@ class CVAssessor:
                 "sentence-transformers/all-MiniLM-L6-v2"
             )
             logger.info(f"Loading HuggingFace model: {model_name}")
-            self._embedding_model = SentenceTransformer(model_name)
-            logger.debug("HuggingFace embedding model loaded successfully")
+            try:
+                self._embedding_model = SentenceTransformer(model_name)
+                logger.debug("HuggingFace embedding model loaded successfully")
+            except (OSError, FileNotFoundError, RuntimeError) as e:
+                logger.warning(f"Failed to load HuggingFace model {model_name}: {e}")
+                logger.info("Falling back to default model: sentence-transformers/all-MiniLM-L6-v2")
+                try:
+                    self._embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+                    logger.debug("Fallback HuggingFace embedding model loaded successfully")
+                except Exception as fallback_error:
+                    logger.error(f"Failed to load fallback model: {fallback_error}")
+                    raise RuntimeError(
+                        f"Failed to load HuggingFace embedding model. "
+                        f"Try clearing the cache with: rm -rf ~/.cache/huggingface/hub/ "
+                        f"or set a different model in HUGGINGFACE_MODEL environment variable."
+                    ) from fallback_error
         except ImportError:
             raise ImportError(
                 "sentence-transformers is required for HuggingFace embeddings. "
@@ -232,18 +276,29 @@ Based on the job description and CV above, provide a match score from 0 to 100."
         self,
         cv_text: str,
         job_description: str,
+        cv_pdf_path: Path | None = None,
     ) -> AssessmentScores:
         """
         Assess CV-job description matching using both techniques.
         
         Args:
-            cv_text: The CV content (LaTeX or plain text)
+            cv_text: The CV content (LaTeX or plain text) - used if cv_pdf_path is None
             job_description: The job description text
+            cv_pdf_path: Optional path to compiled PDF for text extraction (preferred over cv_text)
             
         Returns:
             AssessmentScores containing individual and combined scores
         """
         logger.info("Starting CV-job description assessment")
+        
+        # Extract text from PDF if provided, otherwise use cv_text
+        if cv_pdf_path is not None and cv_pdf_path.exists():
+            logger.debug(f"Extracting text from PDF: {cv_pdf_path}")
+            try:
+                cv_text = extract_text_from_pdf(cv_pdf_path)
+                logger.debug(f"Extracted {len(cv_text)} characters from PDF")
+            except Exception as e:
+                logger.warning(f"Failed to extract text from PDF, falling back to cv_text: {e}")
         
         # Compute embedding score
         logger.debug("Computing embedding similarity score")

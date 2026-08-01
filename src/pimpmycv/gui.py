@@ -225,14 +225,35 @@ def tailor_uploaded_cv(
                     return feedback_callback(result, summary, draft_number, post_assessment_score)
                 return None
             
-            # Run pre-assessment
+            # Run pre-assessment (compile to PDF first)
             try:
                 from pimpmycv.assessment import create_assessor
-                assessor = create_assessor(backend)
-                pre_assessment = assessor.assess(
-                    project.main_tex.read_text(encoding="utf-8"),
-                    job_description
+                from pimpmycv.compiler import compile_latex
+                
+                logger.debug("Compiling original CV for pre-assessment")
+                original_compile_result = compile_latex(
+                    project.main_tex,
+                    source_dir=project.main_tex.parent,
+                    engine=selected_engine,
                 )
+                
+                if original_compile_result.success:
+                    original_cv_pdf = original_compile_result.pdf_path
+                    logger.debug(f"Original CV compiled to PDF: {original_cv_pdf}")
+                    
+                    assessor = create_assessor(backend)
+                    pre_assessment = assessor.assess(
+                        project.main_tex.read_text(encoding="utf-8"),
+                        job_description,
+                        cv_pdf_path=original_cv_pdf
+                    )
+                else:
+                    logger.warning("Original CV compilation failed, using LaTeX text for pre-assessment")
+                    assessor = create_assessor(backend)
+                    pre_assessment = assessor.assess(
+                        project.main_tex.read_text(encoding="utf-8"),
+                        job_description
+                    )
             except Exception as e:
                 logger.warning(f"Pre-assessment failed: {e}")
             
@@ -247,7 +268,19 @@ def tailor_uploaded_cv(
                 max_attempts=max_attempts,
                 max_feedback_rounds=max_feedback_rounds,
                 feedback_callback=assessment_wrapper,
+                enable_assessment=False,  # Disable internal assessment since we do it manually
             )
+            
+            # Run post-assessment using the compiled PDF
+            try:
+                assessor = create_assessor(backend)
+                post_assessment = assessor.assess(
+                    project.main_tex.read_text(encoding="utf-8"),
+                    job_description,
+                    cv_pdf_path=result.pdf_path
+                )
+            except Exception as e:
+                logger.warning(f"Post-assessment failed: {e}")
             
             # Save PDF to custom directory if specified
             if not use_temp:
@@ -499,15 +532,35 @@ def render_app() -> None:
                         api_version=api_version.strip() or None,
                     )
                     
-                    from pimpmycv.assessment import create_assessor
-                    assessor = create_assessor(backend)
-                    assessment = assessor.assess(
-                        project.main_tex.read_text(encoding="utf-8"),
-                        resolved_job
+                    # Compile CV to PDF for text extraction
+                    from pimpmycv.compiler import compile_latex, find_engine
+                    selected_engine = find_engine(engine)
+                    compile_result = compile_latex(
+                        project.main_tex,
+                        source_dir=project.main_tex.parent,
+                        engine=selected_engine,
                     )
                     
-                    st.session_state["assessment_result"] = assessment
-                    st.rerun()
+                    if compile_result.success:
+                        from pimpmycv.assessment import create_assessor
+                        assessor = create_assessor(backend)
+                        assessment = assessor.assess(
+                            project.main_tex.read_text(encoding="utf-8"),
+                            resolved_job,
+                            cv_pdf_path=compile_result.pdf_path
+                        )
+                        st.session_state["assessment_result"] = assessment
+                        st.rerun()
+                    else:
+                        # Fallback to LaTeX text if compilation fails
+                        from pimpmycv.assessment import create_assessor
+                        assessor = create_assessor(backend)
+                        assessment = assessor.assess(
+                            project.main_tex.read_text(encoding="utf-8"),
+                            resolved_job
+                        )
+                        st.session_state["assessment_result"] = assessment
+                        st.rerun()
         except ValueError as exc:
             st.error(str(exc))
         except Exception as exc:

@@ -12,9 +12,10 @@ dependencies = [
   "langgraph>=0.2,<1",
   "numpy>=1.24,<2",
   "openai>=2.46,<3",
+  "pypdf>=3.0,<4",
   "pytest>=9.1,<10",
   "python-dotenv>=1.0,<2",
-  "sentence-transformers>=2.2,<3",
+  "sentence-transformers>=5.1.0",
   "streamlit>=1.56,<2",
 ]
 
