@@ -16,7 +16,7 @@ import urllib.request
 import urllib.error
 
 from pimpmycv.agent import tailor_cv
-from pimpmycv.assessment import AssessmentScores
+from pimpmycv.assessment import AssessmentScores, AssessmentHistory
 from pimpmycv.archive import extract_cv_archive, write_tailored_archive
 from pimpmycv.compiler import CompileResult, SUPPORTED_ENGINES, find_engine
 from pimpmycv.providers import (
@@ -56,6 +56,7 @@ class TailoredFiles:
     pdf_directory: str | None
     pre_assessment: AssessmentScores | None = None
     post_assessment: AssessmentScores | None = None
+    assessment_history: AssessmentHistory | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ class DraftReview:
     summary: str
     number: int
     post_assessment: AssessmentScores | None = None
+    assessment_history: AssessmentHistory | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,7 @@ class GuiTailoringJob:
                     summary=summary,
                     number=draft_number,
                     post_assessment=post_assessment,
+                    assessment_history=result.assessment_history if hasattr(result, 'assessment_history') else None,
                 ),
             )
         )
@@ -207,6 +210,10 @@ def tailor_uploaded_cv(
     else:
         use_temp = True
 
+    # Use a persistent directory for storing drafts to preserve PDF files
+    persistent_dir = Path.home() / ".pimpmycv" / "drafts"
+    persistent_dir.mkdir(parents=True, exist_ok=True)
+    
     with tempfile.TemporaryDirectory(prefix="pimpmycv-gui-") as temp_dir:
         work_dir = Path(temp_dir)
         archive_path = work_dir / "uploaded_cv.zip"
@@ -225,38 +232,7 @@ def tailor_uploaded_cv(
                     return feedback_callback(result, summary, draft_number, post_assessment_score)
                 return None
             
-            # Run pre-assessment (compile to PDF first)
-            try:
-                from pimpmycv.assessment import create_assessor
-                from pimpmycv.compiler import compile_latex
-                
-                logger.debug("Compiling original CV for pre-assessment")
-                original_compile_result = compile_latex(
-                    project.main_tex,
-                    source_dir=project.main_tex.parent,
-                    engine=selected_engine,
-                )
-                
-                if original_compile_result.success:
-                    original_cv_pdf = original_compile_result.pdf_path
-                    logger.debug(f"Original CV compiled to PDF: {original_cv_pdf}")
-                    
-                    assessor = create_assessor(backend)
-                    pre_assessment = assessor.assess(
-                        project.main_tex.read_text(encoding="utf-8"),
-                        job_description,
-                        cv_pdf_path=original_cv_pdf
-                    )
-                else:
-                    logger.warning("Original CV compilation failed, using LaTeX text for pre-assessment")
-                    assessor = create_assessor(backend)
-                    pre_assessment = assessor.assess(
-                        project.main_tex.read_text(encoding="utf-8"),
-                        job_description
-                    )
-            except Exception as e:
-                logger.warning(f"Pre-assessment failed: {e}")
-            
+            # Enable assessment and use persistent directory for storing drafts
             result = tailor_cv(
                 backend,
                 cv_tex=project.main_tex.read_text(encoding="utf-8"),
@@ -268,19 +244,12 @@ def tailor_uploaded_cv(
                 max_attempts=max_attempts,
                 max_feedback_rounds=max_feedback_rounds,
                 feedback_callback=assessment_wrapper,
-                enable_assessment=False,  # Disable internal assessment since we do it manually
+                enable_assessment=True,
+                debug_dir=persistent_dir,
             )
             
-            # Run post-assessment using the compiled PDF
-            try:
-                assessor = create_assessor(backend)
-                post_assessment = assessor.assess(
-                    project.main_tex.read_text(encoding="utf-8"),
-                    job_description,
-                    cv_pdf_path=result.pdf_path
-                )
-            except Exception as e:
-                logger.warning(f"Post-assessment failed: {e}")
+            # Extract assessment history from result
+            assessment_history = result.assessment_history
             
             # Save PDF to custom directory if specified
             if not use_temp:
@@ -306,6 +275,7 @@ def tailor_uploaded_cv(
                 pdf_directory=str(output_dir) if not use_temp else None,
                 pre_assessment=pre_assessment,
                 post_assessment=post_assessment,
+                assessment_history=assessment_history,
             )
 
 
@@ -599,26 +569,102 @@ def render_app() -> None:
         assessment_result = st.session_state.get("assessment_result")
         if assessment_result is not None:
             st.divider()
-            st.subheader("CV-Job Description Assessment")
+            st.subheader("📊 CV-Job Description Assessment")
             st.info(
-                f"**Match Score:** {assessment_result.combined_score:.1f}% "
-                f"(Embedding: {assessment_result.embedding_score:.1f}%, "
-                f"LLM Judge: {assessment_result.llm_judge_score:.1f}%)"
+                f"**🎯 Match Score:** {assessment_result.combined_score:.1f}% "
+                f"(🔤 Embedding: {assessment_result.embedding_score:.1f}%, "
+                f"🤖 LLM Judge: {assessment_result.llm_judge_score:.1f}%)"
             )
+        
+        # Display assessment history table
+        assessment_history = st.session_state.get("assessment_history")
+        if assessment_history is not None and assessment_history.entries:
+            st.divider()
+            st.subheader("📈 Assessment History")
+            table_data = assessment_history.get_table_data()
+            
+            # Format table data for better display
+            for entry in table_data:
+                entry["Draft"] = f"#{entry['draft_number']}" if entry['draft_number'] > 0 else "📄 Original"
+                entry["Combined"] = entry["combined_score"]
+                entry["Embedding"] = entry["embedding_score"]
+                entry["LLM Judge"] = entry["llm_judge_score"]
+            
+            # Create a more friendly table display
+            st.dataframe(
+                table_data,
+                column_config={
+                    "timestamp": st.column_config.TextColumn("⏰ Time", width="medium"),
+                    "Draft": st.column_config.TextColumn("📝 Version", width="small"),
+                    "embedding_score": None,
+                    "llm_judge_score": None,
+                    "combined_score": None,
+                    "Embedding": st.column_config.TextColumn("🔤 Embedding", width="small"),
+                    "LLM Judge": st.column_config.TextColumn("🤖 LLM Judge", width="small"),
+                    "Combined": st.column_config.TextColumn("🎯 Combined", width="small"),
+                    "cv_path": None,
+                    "pdf_path": None,
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
+            
+            # Highlight the latest entry
+            if table_data:
+                latest = table_data[-1]
+                st.caption(f"✨ Latest: Draft {latest['draft_number']} - 🎯 Combined Score: {latest['combined_score']}")
 
         draft = st.session_state.get("draft_review")
         if draft is not None:
             st.divider()
-            st.subheader(f"Review draft {draft.number}")
+            st.subheader(f"📝 Review draft {draft.number}")
             st.caption("Inspect the PDF, then accept it or request another revision.")
             
             # Display post-assessment scores if available
             if draft.post_assessment is not None:
                 st.info(
-                    f"**Match Assessment:** {draft.post_assessment.combined_score:.1f}% "
-                    f"(Embedding: {draft.post_assessment.embedding_score:.1f}%, "
-                    f"LLM Judge: {draft.post_assessment.llm_judge_score:.1f}%)"
+                    f"**🎯 Match Assessment:** {draft.post_assessment.combined_score:.1f}% "
+                    f"(🔤 Embedding: {draft.post_assessment.embedding_score:.1f}%, "
+                    f"🤖 LLM Judge: {draft.post_assessment.llm_judge_score:.1f}%)"
                 )
+            
+            # Display assessment history table during draft review
+            assessment_history = draft.assessment_history
+            if assessment_history is not None and assessment_history.entries:
+                st.divider()
+                st.subheader("📈 Assessment History")
+                table_data = assessment_history.get_table_data()
+                
+                # Format table data for better display
+                for entry in table_data:
+                    entry["Draft"] = f"#{entry['draft_number']}" if entry['draft_number'] > 0 else "📄 Original"
+                    entry["Combined"] = entry["combined_score"]
+                    entry["Embedding"] = entry["embedding_score"]
+                    entry["LLM Judge"] = entry["llm_judge_score"]
+                
+                # Create a more friendly table display
+                st.dataframe(
+                    table_data,
+                    column_config={
+                        "timestamp": st.column_config.TextColumn("⏰ Time", width="medium"),
+                        "Draft": st.column_config.TextColumn("📝 Version", width="small"),
+                        "embedding_score": None,
+                        "llm_judge_score": None,
+                        "combined_score": None,
+                        "Embedding": st.column_config.TextColumn("🔤 Embedding", width="small"),
+                        "LLM Judge": st.column_config.TextColumn("🤖 LLM Judge", width="small"),
+                        "Combined": st.column_config.TextColumn("🎯 Combined", width="small"),
+                        "cv_path": None,
+                        "pdf_path": st.column_config.TextColumn("📁 PDF Path", width="large"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                
+                # Highlight the latest entry
+                if table_data:
+                    latest = table_data[-1]
+                    st.caption(f"✨ Latest: Draft {latest['draft_number']} - 🎯 Combined Score: {latest['combined_score']}")
             
             _render_pdf(
                 st,
@@ -671,7 +717,7 @@ def render_app() -> None:
         output = st.session_state.get("tailored_files")
         if output is not None:
             st.divider()
-            st.success("Your tailored CV is ready.")
+            st.success("✅ Your tailored CV is ready.")
             st.caption(
                 f"{output.provider} · {output.model} · "
                 f"{output.engine} · {output.main_tex}"
@@ -684,22 +730,53 @@ def render_app() -> None:
                 st.divider()
                 if output.pre_assessment is not None:
                     st.info(
-                        f"**Pre-assessment (Original CV):** {output.pre_assessment.combined_score:.1f}% "
-                        f"(Embedding: {output.pre_assessment.embedding_score:.1f}%, "
-                        f"LLM Judge: {output.pre_assessment.llm_judge_score:.1f}%)"
+                        f"**📊 Pre-assessment (Original CV):** {output.pre_assessment.combined_score:.1f}% "
+                        f"(🔤 Embedding: {output.pre_assessment.embedding_score:.1f}%, "
+                        f"🤖 LLM Judge: {output.pre_assessment.llm_judge_score:.1f}%)"
                     )
                 if output.post_assessment is not None:
                     st.success(
-                        f"**Post-assessment (Tailored CV):** {output.post_assessment.combined_score:.1f}% "
-                        f"(Embedding: {output.post_assessment.embedding_score:.1f}%, "
-                        f"LLM Judge: {output.post_assessment.llm_judge_score:.1f}%)"
+                        f"**🎯 Post-assessment (Tailored CV):** {output.post_assessment.combined_score:.1f}% "
+                        f"(🔤 Embedding: {output.post_assessment.embedding_score:.1f}%, "
+                        f"🤖 LLM Judge: {output.post_assessment.llm_judge_score:.1f}%)"
                     )
                 if output.pre_assessment is not None and output.post_assessment is not None:
                     improvement = output.post_assessment.combined_score - output.pre_assessment.combined_score
                     if improvement > 0:
-                        st.success(f"**Improvement:** +{improvement:.1f}%")
+                        st.success(f"**📈 Improvement:** +{improvement:.1f}%")
                     elif improvement < 0:
-                        st.warning(f"**Change:** {improvement:.1f}%")
+                        st.warning(f"**📉 Change:** {improvement:.1f}%")
+            
+            # Display assessment history table
+            if output.assessment_history is not None and output.assessment_history.entries:
+                st.divider()
+                st.subheader("📈 Assessment History")
+                table_data = output.assessment_history.get_table_data()
+                
+                # Format table data for better display
+                for entry in table_data:
+                    entry["Draft"] = f"#{entry['draft_number']}" if entry['draft_number'] > 0 else "📄 Original"
+                    entry["Combined"] = entry["combined_score"]
+                    entry["Embedding"] = entry["embedding_score"]
+                    entry["LLM Judge"] = entry["llm_judge_score"]
+                
+                st.dataframe(
+                    table_data,
+                    column_config={
+                        "timestamp": st.column_config.TextColumn("⏰ Time", width="medium"),
+                        "Draft": st.column_config.TextColumn("📝 Version", width="small"),
+                        "embedding_score": None,
+                        "llm_judge_score": None,
+                        "combined_score": None,
+                        "Embedding": st.column_config.TextColumn("🔤 Embedding", width="small"),
+                        "LLM Judge": st.column_config.TextColumn("🤖 LLM Judge", width="small"),
+                        "Combined": st.column_config.TextColumn("🎯 Combined", width="small"),
+                        "cv_path": None,
+                        "pdf_path": st.column_config.TextColumn("📁 PDF Path", width="large"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
             
             _render_pdf(
                 st,

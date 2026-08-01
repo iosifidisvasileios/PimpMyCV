@@ -4,7 +4,8 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,60 @@ class AssessmentScores:
             f"LLM Judge Score: {self.llm_judge_score:.1f}% | "
             f"Combined Score: {self.combined_score:.1f}%"
         )
+
+
+@dataclass
+class AssessmentEntry:
+    """Single entry in assessment history."""
+    timestamp: datetime
+    cv_path: str  # Path to CV file
+    pdf_path: str | None  # Path to PDF if available
+    draft_number: int  # 0 for original, 1+ for revisions
+    embedding_score: float
+    llm_judge_score: float
+    combined_score: float
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for display."""
+        return {
+            "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "cv_path": self.cv_path,
+            "pdf_path": self.pdf_path,
+            "draft_number": self.draft_number,
+            "embedding_score": f"{self.embedding_score:.1f}%",
+            "llm_judge_score": f"{self.llm_judge_score:.1f}%",
+            "combined_score": f"{self.combined_score:.1f}%",
+        }
+
+
+@dataclass
+class AssessmentHistory:
+    """History of all assessments for a CV tailoring session."""
+    original_cv_path: str
+    original_cv_directory: str
+    entries: list[AssessmentEntry] = field(default_factory=list)
+    
+    def add_entry(
+        self,
+        pdf_path: str | None,
+        draft_number: int,
+        scores: AssessmentScores,
+    ) -> None:
+        """Add a new assessment entry."""
+        entry = AssessmentEntry(
+            timestamp=datetime.now(),
+            cv_path=self.original_cv_path,
+            pdf_path=pdf_path,
+            draft_number=draft_number,
+            embedding_score=scores.embedding_score,
+            llm_judge_score=scores.llm_judge_score,
+            combined_score=scores.combined_score,
+        )
+        self.entries.append(entry)
+    
+    def get_table_data(self) -> list[dict]:
+        """Get all entries as table data."""
+        return [entry.to_dict() for entry in self.entries]
 
 
 class CVAssessor:

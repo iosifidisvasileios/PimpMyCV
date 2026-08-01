@@ -10,7 +10,7 @@ from typing import Any, Callable, TypedDict
 
 from langgraph.graph import StateGraph, END
 
-from .assessment import AssessmentScores, create_assessor
+from .assessment import AssessmentScores, AssessmentHistory, create_assessor
 from .compiler import CompileResult, compile_latex
 
 
@@ -169,9 +169,10 @@ class AgentState(TypedDict):
     last_response: Any
     last_response_id: str | None
     
-    # Assessment scores
+    # Assessment scores and history
     pre_assessment: AssessmentScores | None
     post_assessment: AssessmentScores | None
+    assessment_history: AssessmentHistory | None
 
 
 # LangGraph Nodes
@@ -340,6 +341,24 @@ def handle_compilation_success(state: AgentState) -> dict:
         # Use the compiled PDF for text extraction
         post_assessment = assessor.assess(generated_cv_tex, state["job_description"], cv_pdf_path=result.pdf_path)
         logger.info(f"Post-assessment for draft {draft_number}: {post_assessment}")
+        
+        # Save PDF to drafts directory if debug_dir is set
+        draft_pdf_path = result.pdf_path
+        if state.get("debug_dir") is not None:
+            drafts_dir = state["debug_dir"] / "drafts"
+            drafts_dir.mkdir(parents=True, exist_ok=True)
+            draft_pdf_path = drafts_dir / f"draft_{draft_number}.pdf"
+            import shutil
+            shutil.copy2(result.pdf_path, draft_pdf_path)
+            logger.debug(f"Saved draft {draft_number} PDF to: {draft_pdf_path}")
+        
+        # Add to assessment history
+        if state.get("assessment_history") is not None:
+            state["assessment_history"].add_entry(
+                pdf_path=str(draft_pdf_path),
+                draft_number=draft_number,
+                scores=post_assessment,
+            )
     except Exception as e:
         logger.warning(f"Post-assessment failed for draft {draft_number}: {e}")
         post_assessment = None
@@ -356,8 +375,13 @@ def handle_compilation_success(state: AgentState) -> dict:
     
     # Request user feedback
     logger.debug("Calling feedback_callback for draft %d", draft_number)
+    
+    # Update result with assessment history before passing to callback
+    from dataclasses import replace
+    result_with_history = replace(result, assessment_history=state.get("assessment_history"))
+    
     user_feedback = state["feedback_callback"](
-        result,
+        result_with_history,
         summary.strip(),
         draft_number,
         post_assessment,
@@ -546,6 +570,14 @@ def tailor_cv(
     if max_feedback_rounds < 0:
         raise ValueError("max_feedback_rounds cannot be negative")
     
+    # Initialize assessment history
+    assessment_history = None
+    if enable_assessment:
+        assessment_history = AssessmentHistory(
+            original_cv_path=str(output_tex),
+            original_cv_directory=str(source_dir),
+        )
+    
     # Run pre-assessment on original CV
     pre_assessment = None
     original_cv_pdf = None
@@ -569,11 +601,25 @@ def tailor_cv(
                 assessor = create_assessor(backend)
                 pre_assessment = assessor.assess(cv_tex, job_description, cv_pdf_path=original_cv_pdf)
                 logger.info(f"Pre-assessment: {pre_assessment}")
+                
+                # Add original CV to assessment history
+                assessment_history.add_entry(
+                    pdf_path=str(original_cv_pdf),
+                    draft_number=0,
+                    scores=pre_assessment,
+                )
             else:
                 logger.warning("Original CV compilation failed, using LaTeX text for pre-assessment")
                 assessor = create_assessor(backend)
                 pre_assessment = assessor.assess(cv_tex, job_description)
                 logger.info(f"Pre-assessment (from LaTeX): {pre_assessment}")
+                
+                # Add original CV to assessment history (no PDF)
+                assessment_history.add_entry(
+                    pdf_path=None,
+                    draft_number=0,
+                    scores=pre_assessment,
+                )
         except Exception as e:
             logger.warning(f"Pre-assessment failed: {e}")
     
@@ -686,6 +732,7 @@ def tailor_cv(
         "last_response_id": None,
         "pre_assessment": pre_assessment,
         "post_assessment": None,
+        "assessment_history": assessment_history,
     }
     
     # Run the graph
@@ -705,7 +752,9 @@ def tailor_cv(
         result = final_state["compile_result"]
         if result.success:
             logger.info("Successfully produced compilable CV")
-            return result
+            # Return result with assessment history
+            from dataclasses import replace
+            return replace(result, assessment_history=final_state.get("assessment_history"))
     
     # Error case
     details = ""

@@ -9,7 +9,7 @@ import shutil
 from openai import OpenAIError
 
 from .agent import tailor_cv
-from .assessment import AssessmentScores, create_assessor
+from .assessment import AssessmentScores, AssessmentHistory, create_assessor
 from .archive import ArchiveError, extract_cv_archive, write_tailored_archive
 from .compiler import SUPPORTED_ENGINES, find_engine
 from .providers import PROVIDERS, ProviderConfigError, create_backend
@@ -245,47 +245,6 @@ def main(argv: list[str] | None = None) -> None:
                     return None
                 return feedback.strip() or None
 
-            # Run pre-assessment if enabled (compile to PDF first)
-            pre_assessment = None
-            original_cv_pdf = None
-            if enable_assessment:
-                try:
-                    from .compiler import compile_latex
-                    logger.debug("[CLI] Compiling original CV for pre-assessment")
-                    output_dir.mkdir(parents=True, exist_ok=True)
-                    temp_output_tex = output_dir / "original_cv.tex"
-                    temp_output_tex.write_text(project.main_tex.read_text(encoding="utf-8"), encoding="utf-8")
-                    
-                    original_compile_result = compile_latex(
-                        temp_output_tex,
-                        source_dir=project.main_tex.parent,
-                        engine=selected_engine,
-                    )
-                    
-                    if original_compile_result.success:
-                        original_cv_pdf = original_compile_result.pdf_path
-                        logger.debug(f"[CLI] Original CV compiled to PDF: {original_cv_pdf}")
-                        
-                        assessor = create_assessor(backend)
-                        pre_assessment = assessor.assess(
-                            project.main_tex.read_text(encoding="utf-8"),
-                            job_path.read_text(encoding="utf-8"),
-                            cv_pdf_path=original_cv_pdf
-                        )
-                        print(f"\nPre-assessment (Original CV): {pre_assessment.combined_score:.1f}%")
-                        print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
-                    else:
-                        logger.warning("[CLI] Original CV compilation failed, using LaTeX text for pre-assessment")
-                        assessor = create_assessor(backend)
-                        pre_assessment = assessor.assess(
-                            project.main_tex.read_text(encoding="utf-8"),
-                            job_path.read_text(encoding="utf-8")
-                        )
-                        print(f"\nPre-assessment (Original CV - from LaTeX): {pre_assessment.combined_score:.1f}%")
-                        print(f"  (Embedding: {pre_assessment.embedding_score:.1f}%, LLM Judge: {pre_assessment.llm_judge_score:.1f}%)")
-                except Exception as e:
-                    logger.warning(f"Pre-assessment failed: {e}")
-            
             logger.debug("[CLI] Calling tailor_cv() with max_attempts=%d, max_feedback_rounds=%d", args.max_attempts, args.max_feedback_rounds)
             result = tailor_cv(
                 backend,
@@ -303,30 +262,24 @@ def main(argv: list[str] | None = None) -> None:
                 max_feedback_rounds=args.max_feedback_rounds,
                 feedback_callback=None if args.no_feedback else request_feedback,
                 debug_dir=output_dir / "debug" if args.debug else None,
-                enable_assessment=False,  # Disable internal assessment since we do it manually
+                enable_assessment=enable_assessment,
             )
             logger.debug("[CLI] tailor_cv() completed successfully")
             
-            # Run post-assessment if enabled (use the compiled PDF)
-            post_assessment = None
-            if enable_assessment:
-                try:
-                    assessor = create_assessor(backend)
-                    post_assessment = assessor.assess(
-                        project.main_tex.read_text(encoding="utf-8"),
-                        job_path.read_text(encoding="utf-8"),
-                        cv_pdf_path=result.pdf_path
-                    )
-                    print(f"\nPost-assessment (Tailored CV): {post_assessment.combined_score:.1f}%")
-                    print(f"  (Embedding: {post_assessment.embedding_score:.1f}%, LLM Judge: {post_assessment.llm_judge_score:.1f}%)")
-                    if pre_assessment is not None:
-                        improvement = post_assessment.combined_score - pre_assessment.combined_score
-                        if improvement > 0:
-                            print(f"Improvement: +{improvement:.1f}%")
-                        elif improvement < 0:
-                            print(f"Change: {improvement:.1f}%")
-                except Exception as e:
-                    logger.warning(f"Post-assessment failed: {e}")
+            # Display assessment history if available
+            if enable_assessment and result.assessment_history is not None:
+                print("\n" + "="*60)
+                print("Assessment History")
+                print("="*60)
+                table_data = result.assessment_history.get_table_data()
+                for entry in table_data:
+                    print(f"\nDraft {entry['draft_number']}:")
+                    print(f"  Timestamp: {entry['timestamp']}")
+                    print(f"  CV Path: {entry['cv_path']}")
+                    print(f"  PDF Path: {entry['pdf_path']}")
+                    print(f"  Embedding: {entry['embedding_score']}")
+                    print(f"  LLM Judge: {entry['llm_judge_score']}")
+                    print(f"  Combined: {entry['combined_score']}")
             
             logger.debug("[CLI] Writing final output files...")
             output_dir.mkdir(parents=True, exist_ok=True)

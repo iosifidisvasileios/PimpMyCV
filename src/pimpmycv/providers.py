@@ -17,8 +17,8 @@ except ImportError:
     _has_dotenv = False
 
 
-ProviderName = Literal["openai", "azure", "ollama"]
-PROVIDERS: tuple[ProviderName, ...] = ("openai", "azure", "ollama")
+ProviderName = Literal["azure", "ollama", "openai"]
+PROVIDERS: tuple[ProviderName, ...] = ("azure", "ollama", "openai")
 
 
 class ProviderConfigError(ValueError):

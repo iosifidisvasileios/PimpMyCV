@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+from typing import Any
 
 
 SUPPORTED_ENGINES = ("latexmk", "pdflatex", "xelatex", "lualatex", "tectonic")
@@ -18,6 +19,7 @@ class CompileResult:
     engine: str
     pdf_path: Path
     log: str
+    assessment_history: Any = None
 
 
 def find_engine(requested: str = "auto") -> str:
